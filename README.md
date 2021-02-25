@@ -1,4 +1,4 @@
-# ALS_A1_astrocytes
+# ALS astrocyte meta-analysis and correlation with A1 astrocytes
 This repository contains scripts to analyse the data and reproduce the figures from the ALS astrocyte meta-analysis and correlation with A1 astrocyte project.
 
 ALS astrocytes share multiomic signatures and functional deficits with A1 reactive astrocytes. Benjamin E. Clarke*, Oliver J. Ziff*, Doaa M. Taha*, Hamish Crerar, Nicholas M. Luscombe, Rickie Patani
