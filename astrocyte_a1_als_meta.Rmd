@@ -1,0 +1,1912 @@
+---
+title: "Astrocyte ALS A1 meta-analysis"
+author: "Oliver Ziff"
+date: "`r format(Sys.time(), '%d %h %Y %H:%M')`"
+output:
+  html_document:
+    fig_width: 7
+    fig_height: 6
+    toc_depth: 3
+    theme: simplex
+    dev: jpeg
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+.libPaths("/camp/lab/luscomben/home/users/ziffo/.conda/envs/r4.0.3/lib/R/library")
+source("/camp/home/ziffo/home/scripts/functions/all_r_functions.R")
+load("/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/deseq2.RData")
+mass_spec.res <- readRDS("/camp/lab/luscomben/home/users/ziffo/projects/astrocyte-a1-als-meta/expression/mass-spec/mass_spec.res_vcp_vs_ctrl.rds")
+```
+
+## DESeq2 objects
+
+Create sym links so that all Salmon results accessible in /camp/home/ziffo/home/projects/astrocyte-a1-als-meta/alignment/salmon
+
+```{bash}
+cd /camp/home/ziffo/home/projects/astrocyte-a1-als-meta/alignment/salmon
+ln -s /camp/lab/luscomben/home/shared/projects/patani-collab/astrocyte-fractionation-bulk-rnaseq/nfcore/star_salmon/* /camp/home/ziffo/home/projects/astrocyte-a1-als-meta/alignment/salmon
+ln -s /camp/lab/luscomben/home/shared/projects/patani-collab/public-data/astrocyte-c9orf72-ipsc-birger-2019/nfcore/star_salmon/* /camp/home/ziffo/home/projects/astrocyte-a1-als-meta/alignment/salmon
+ln -s /camp/lab/luscomben/home/shared/projects/patani-collab/public-data/astrocyte-sod1-ipsc-tyzack-2017/nfcore/star_salmon/* /camp/home/ziffo/home/projects/astrocyte-a1-als-meta/alignment/salmon
+ln -s /camp/lab/luscomben/home/shared/projects/patani-collab/public-data/purified-cortex-human-zhang-2016/nfcore/star_salmon/* /camp/home/ziffo/home/projects/astrocyte-a1-als-meta/alignment/salmon
+ln -s /camp/lab/luscomben/home/shared/projects/patani-collab/public-data/regional-astrocytes-ipsc-bradley-2019/nfcore/star_salmon/* /camp/home/ziffo/home/projects/astrocyte-a1-als-meta/alignment/salmon
+ln -s /camp/lab/luscomben/home/shared/projects/patani-collab/public-data/reactive-astrocyte-barbar-2020/nfcore/star_salmon/* /camp/home/ziffo/home/projects/astrocyte-a1-als-meta/alignment/salmon
+ln -s /camp/lab/luscomben/home/shared/projects/patani-collab/public-data/astrocyte-sod1-mouse-bacTRAP-cleveland-2015/nfcore/star_salmon/* /camp/home/ziffo/home/projects/astrocyte-a1-als-meta/alignment/salmon
+ln -s /camp/lab/luscomben/home/shared/projects/patani-collab/public-data/astrocyte-membralin-mouse-jiang-2019/nfcore/star_salmon/* /camp/home/ziffo/home/projects/astrocyte-a1-als-meta/alignment/salmon
+ln -s /camp/lab/luscomben/home/shared/projects/patani-collab/public-data/astrocyte-tdp43-mouse-peng-2020/nfcore/star_salmon/* /camp/home/ziffo/home/projects/astrocyte-a1-als-meta/alignment/salmon
+
+find . -xtype l -delete # remove only broken soft links
+```
+
+
+```{r}
+dir <- "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/alignment/salmon"
+
+# Patani (VCP astrocytes) alone
+patani <- read.csv("/camp/lab/luscomben/home/shared/projects/patani-collab/astrocyte-fractionation-bulk-rnaseq/sample-details/sample_table.csv") %>% filter(fraction == "whole", cellline != "ctrl2") %>% distinct(fraction_cellline, .keep_all = TRUE) %>% # 
+  mutate(group = vcp, replicate = c(1,2,1,2), sample = cellline, file_salmon = file.path(dir, paste("ac_who_", vcp, "_R", replicate, sep = ""), "quant.sf")) %>%
+  dplyr::select(group, replicate, sample, file_salmon) %>% mutate(group = factor(group, levels = c("ctrl", "vcp")))
+patani.files <- patani$file_salmon
+names(patani.files) <- patani$sample
+rownames(patani) <- patani$sample
+patani.txi <- tximport(patani.files, type="salmon", tx2gene=tx2gene)
+patani.dds <- DESeqDataSetFromTximport(patani.txi, colData = patani, design = ~ group)
+patani.dds <- DESeq(patani.dds) # run DESeq2
+patani.vsd <- vst(patani.dds, blind=FALSE) # VST transformation)
+patani.res <- DESeq2::results(patani.dds, name = "group_vcp_vs_ctrl") # Astrocyte VCP vs CTRL
+gene2ens_filtered <-  filter(gene2ens, gene_id %in% rownames(patani.res)) %>% unique # filter gene to ensID to only ENS names in the results tibble
+patani.res <- patani.res %>% as_tibble(rownames = "ensID") %>% left_join(gene2ens_filtered, by=c("ensID"="gene_id")) %>% arrange(padj) # join gene gene_nameS to res tibble & order by padj
+
+# ALS datasets (VCP, SOD1 and C9orf72) meta-analysis with ~ dataset + condition
+patani <- read.csv("/camp/lab/luscomben/home/shared/projects/patani-collab/astrocyte-fractionation-bulk-rnaseq/sample-details/sample_table.csv") %>% filter(fraction == "whole", cellline != "ctrl2") %>% distinct(fraction_cellline, .keep_all = TRUE) %>%  mutate(group = vcp, replicate = c(1,2,1,2), sample = cellline, file_salmon = file.path(dir, paste("ac_who_", vcp, "_R", replicate, sep = ""), "quant.sf"), dataset = "patani") %>%  dplyr::select(group, sample, dataset, file_salmon)
+patani$group <- gsub("vcp", "als", patani$group)
+birger <-read_excel("/camp/lab/luscomben/home/shared/projects/patani-collab/public-data/astrocyte-c9orf72-ipsc-birger-2019/sample-details/metadata.xlsx")
+birger$group <- gsub("C9orf72", "als", birger$condition) %>% gsub("control", "ctrl",.)
+birger$condition <- gsub("C9orf72", "c9orf72", birger$condition) %>% gsub("control", "ctrl",.)
+birger <- birger %>%  mutate(group, replicate = c(1,2,1,2), sample, file_salmon = file.path(dir, paste("ac_bir_", condition, "_R", replicate, sep = ""), "quant.sf"), dataset = "birger") %>%  dplyr::select(group, sample, dataset, file_salmon)
+tyzack <- read_excel("/camp/lab/luscomben/home/shared/projects/patani-collab/public-data/astrocyte-sod1-ipsc-tyzack-2017/sample-details/metadata.xlsx") %>%
+  mutate(group = condition, replicate = c(1,2,3,4,1,2,3), sample = paste("ac_tyz_", condition, "_R", replicate, sep = ""), file_salmon = file.path(dir, paste("ac_tyz_", condition, "_R", replicate, sep = ""), "quant.sf"), dataset = "tyzack") %>%  dplyr::select(group, sample, dataset, file_salmon)
+tyzack$group <- gsub("sod1", "als", tyzack$group)
+als_datasets <- bind_rows(patani, birger, tyzack) %>% mutate(group = factor(group, levels = c("ctrl", "als"))) #bind rows
+als_datasets.files <- als_datasets$file_salmon
+names(als_datasets.files) <- als_datasets$sample
+rownames(als_datasets) <- als_datasets$sample
+als_datasets.txi <- tximport(als_datasets.files, type="salmon", tx2gene=tx2gene)
+als_datasets.dds <- DESeqDataSetFromTximport(als_datasets.txi, colData = als_datasets, design = ~ dataset + group)
+als_datasets.dds <- DESeq(als_datasets.dds) # run DESeq2
+als_datasets.vsd <- vst(als_datasets.dds, blind=FALSE) # VST transformation)
+resultsNames(als_datasets.dds)
+als_datasets.res <- DESeq2::results(als_datasets.dds, name = "group_als_vs_ctrl") # Astrocyte VCP vs CTRL
+gene2ens_filtered <-  filter(gene2ens, gene_id %in% rownames(als_datasets.res)) %>% unique # filter gene to ensID to only ENS names in the results tibble
+als_datasets.res <- als_datasets.res %>% as_tibble(rownames = "ensID") %>% left_join(gene2ens_filtered, by=c("ensID"="gene_id")) %>% arrange(padj) # join gene gene_nameS to res tibble & order by padj
+
+# Barbar cytokine-stimulated A1 astrocytes alone
+barbar <- read.csv("/camp/lab/luscomben/home/shared/projects/patani-collab/public-data/reactive-astrocyte-barbar-2020/sample-details/samplesheet.csv") %>% 
+  mutate(file_salmon = file.path(dir, paste(group, "_R", replicate, sep = ""), "quant.sf"), reactivity = c("A0","A1","A0","A1","A0","A1"), group = factor(reactivity, levels = c("A0", "A1"))) %>% dplyr::select(group, replicate, sample, file_salmon)
+barbar.files <- barbar$file_salmon
+names(barbar.files) <- barbar$sample
+rownames(barbar) <- barbar$sample
+barbar.txi <- tximport(barbar.files, type="salmon", tx2gene=tx2gene)
+barbar.dds <- DESeqDataSetFromTximport(barbar.txi, colData = barbar, design = ~ group)
+barbar.dds <- DESeq(barbar.dds) # run DESeq2
+barbar.vsd <- vst(barbar.dds, blind=FALSE) # VST transformation)
+resultsNames(barbar.dds)
+barbar.res <- DESeq2::results(barbar.dds, name = "group_A1_vs_A0") # Astrocyte VCP vs CTRL
+gene2ens_filtered <-  filter(gene2ens, gene_id %in% rownames(barbar.res)) %>% unique # filter gene to ensID to only ENS names in the results tibble
+barbar.res <- barbar.res %>% as_tibble(rownames = "ensID") %>% left_join(gene2ens_filtered, by=c("ensID"="gene_id")) %>% arrange(padj) # join gene gene_nameS to res tibble & order by padj
+
+# Patani & Zhang & Barbar & Bradley together
+zhang <- read.csv("/camp/lab/luscomben/home/shared/projects/patani-collab/public-data/purified-cortex-human-zhang-2016/sample-details/samplesheet.csv") %>% 
+  filter(!group %in% c("astrocyte_mouse_cortex", "astrocyte_adult_tumour", "astrocyte_adult_tumour", "astrocyte_adult_hippocampus", "endothelial_adult_temporal_lobe", "whole_adult_temporal_lobe")) %>% 
+  mutate(file_salmon = file.path(dir, paste(group, "_R", replicate, sep = ""), "quant.sf"), celltype_source = paste(celltype,source, sep = "_"), region = gsub("temporal_lobe", "cortex", region)) %>% 
+  dplyr::select(group, replicate, region, celltype, celltype_source, sample, file_salmon)
+patani <- read.csv("/camp/lab/luscomben/home/shared/projects/patani-collab/astrocyte-fractionation-bulk-rnaseq/sample-details/sample_table.csv") %>% 
+  filter(fraction == "whole", cellline != "ctrl2") %>% #vcp == "ctrl", 
+  distinct(fraction_cellline, .keep_all = TRUE) %>% 
+  mutate(celltype= "astrocyte", group = "astrocyte_ipsc", replicate = c(1,2,1,2), rpt = c(1,2,3,4), region = "ipsc", celltype_source = "Clarke_ipsc", sample = paste(group, rpt, sep = "_"), file_salmon = file.path(dir, paste("ac_who_", vcp, "_R", replicate, sep = ""), "quant.sf")) %>% dplyr::select(group, replicate, region, celltype, celltype_source, sample, file_salmon)
+tyzack <- read_excel("/camp/lab/luscomben/home/shared/projects/patani-collab/public-data/astrocyte-sod1-ipsc-tyzack-2017/sample-details/metadata.xlsx") %>%
+  mutate(celltype= "astrocyte", group = "astrocyte_ipsc", replicate = c(1,2,3,4,1,2,3), rpt = c(1,2,3,4,5,6,7), region = "ipsc", celltype_source = "Tyzack_ipsc", sample = paste("ac_tyz_", group, "_R", rpt, sep = ""), file_salmon = file.path(dir, paste("ac_tyz_", condition, "_R", replicate, sep = ""), "quant.sf")) %>% dplyr::select(group, replicate, region, celltype, celltype_source, sample, file_salmon)
+birger <-read_excel("/camp/lab/luscomben/home/shared/projects/patani-collab/public-data/astrocyte-c9orf72-ipsc-birger-2019/sample-details/metadata.xlsx") %>%
+    mutate(condition = gsub("C9orf72", "c9orf72", condition), condition = gsub("control", "ctrl", condition),celltype= "astrocyte", group = "astrocyte_ipsc", replicate = c(1,2,1,2), rpt = c(1,2,3,4), region = "ipsc", celltype_source = "Birger_ipsc", sample = paste("ac_bir_", group, "_R", rpt, sep = ""), file_salmon = file.path(dir, paste("ac_bir_", condition, "_R", replicate, sep = ""), "quant.sf")) %>% dplyr::select(group, replicate, region, celltype, celltype_source, sample, file_salmon)
+barbar <- read.csv("/camp/lab/luscomben/home/shared/projects/patani-collab/public-data/reactive-astrocyte-barbar-2020/sample-details/samplesheet.csv") %>% 
+  mutate(rpt = c(1,2,3,4,5,6), file_salmon = file.path(dir, paste(group, "_R", replicate, sep = ""), "quant.sf"), reactivity = c("A0","A1","A0","A1","A0","A1"), region = "ipsc", celltype_source = "Barbar_ipsc", celltype= "astrocyte", group = "astrocyte_ipsc", sample = paste("CD49", group, rpt, sep = "_")) %>% #filter(reactivity != "A1") %>% 
+  dplyr::select(group, replicate, region, celltype, celltype_source, sample, file_salmon)
+bradley <- read.csv("/camp/lab/luscomben/home/shared/projects/patani-collab/public-data/regional-astrocytes-ipsc-bradley-2019/sample-details/samplesheet.csv") %>%
+  mutate(file_salmon = file.path(dir, paste(group, "_R", replicate, sep = ""), "quant.sf"), sample = paste(group, "_R", replicate, sep = ""), region = "ipsc", celltype_source = rep(c("Bradley_FB_ipsc", "Bradley_SC_ipsc"), each = 12), celltype= "astrocyte", group = "astrocyte_ipsc") %>%  dplyr::select(group, replicate, region, celltype, celltype_source, sample, file_salmon) %>% distinct(sample, .keep_all = TRUE)
+zhang_barbar_bradley_patani_tyzack_birger.sampleTable <- bind_rows(zhang, patani, tyzack, birger, barbar, bradley) %>% mutate(celltype_source = factor(celltype_source, levels = c("Clarke_ipsc", "Tyzack_ipsc", "Birger_ipsc", "Barbar_ipsc", "Bradley_SC_ipsc","Bradley_FB_ipsc", "astrocyte_fetal", "astrocyte_adult", "oligodendrocyte_adult", "neuron_adult", "myeloid_adult", "endothelial_adult", "whole_adult"))) %>% as.data.frame()
+zhang_barbar_bradley_patani_tyzack_birger.files <- zhang_barbar_bradley_patani_tyzack_birger.sampleTable$file_salmon
+names(zhang_barbar_bradley_patani_tyzack_birger.files) <- zhang_barbar_bradley_patani_tyzack_birger.sampleTable$sample
+rownames(zhang_barbar_bradley_patani_tyzack_birger.sampleTable) <- zhang_barbar_bradley_patani_tyzack_birger.sampleTable$sample
+zhang_barbar_bradley_patani_tyzack_birger.txi <- tximport(zhang_barbar_bradley_patani_tyzack_birger.files, type="salmon", tx2gene=tx2gene)
+zhang_barbar_bradley_patani_tyzack_birger.dds <- DESeqDataSetFromTximport(zhang_barbar_bradley_patani_tyzack_birger.txi, colData = zhang_barbar_bradley_patani_tyzack_birger.sampleTable, design = ~ group)
+zhang_barbar_bradley_patani_tyzack_birger.vsd <- vst(zhang_barbar_bradley_patani_tyzack_birger.dds, blind=FALSE) # VST transformation)
+
+# Cleveland bacTRAP alone
+cleveland <- read.csv("/camp/lab/luscomben/home/shared/projects/patani-collab/public-data/astrocyte-sod1-mouse-bacTRAP-cleveland-2015/sample-details/samplesheet.csv") %>% 
+  mutate(sample = paste(group, "_R", replicate, sep = ""), file_salmon = file.path(dir, paste(group, "_R", replicate, sep = ""), "quant.sf"), condition = gsub("ac_sun_", "", group), group = factor(condition, levels = c("ctrl", "sod1"))) %>% dplyr::select(group, replicate, sample, file_salmon)
+cleveland.files <- cleveland$file_salmon
+names(cleveland.files) <- cleveland$sample
+rownames(cleveland) <- cleveland$sample
+cleveland.txi <- tximport(cleveland.files, type="salmon", tx2gene = mus.musculus.tx2gene)
+cleveland.dds <- DESeqDataSetFromTximport(cleveland.txi, colData = cleveland, design = ~ group)
+cleveland.dds <- DESeq(cleveland.dds) # run DESeq2
+cleveland.vsd <- vst(cleveland.dds, blind=FALSE) # VST transformation)
+resultsNames(cleveland.dds)
+cleveland.res <- DESeq2::results(cleveland.dds, name = "group_sod1_vs_ctrl") # Astrocyte VCP vs CTRL
+gene2ens_filtered <-  filter(mus.musculus.gene2ens, gene_id %in% rownames(cleveland.res)) %>% unique # filter gene to ensID to only ENS names in the results tibble
+cleveland.res <- cleveland.res %>% as_tibble(rownames = "ensID") %>% left_join(gene2ens_filtered, by=c("ensID"="gene_id")) %>% mutate(gene_name= toupper(gene_name)) %>% arrange(padj) # join gene gene_names to res tibble, upper case enables overlap with hsapiens & order by padj
+
+# Peng TDP43 alone
+peng <- read.csv("/camp/lab/luscomben/home/shared/projects/patani-collab/public-data/astrocyte-tdp43-mouse-peng-2020/sample-details/samplesheet.csv") %>% filter(group != "mou_tdp43_het") %>%
+  mutate(sample = paste(group, "_R", replicate, sep = ""), file_salmon = file.path(dir, paste(group, "_R", replicate, sep = ""), "quant.sf"), condition = gsub("mou_tdp43_", "", group), group = factor(condition, levels = c("ctrl", "ko"))) %>% dplyr::select(group, replicate, sample, file_salmon)
+peng.files <- peng$file_salmon
+names(peng.files) <- peng$sample
+rownames(peng) <- peng$sample
+peng.txi <- tximport(peng.files, type="salmon", tx2gene = mus.musculus.tx2gene)
+peng.dds <- DESeqDataSetFromTximport(peng.txi, colData = peng, design = ~ group)
+peng.dds <- DESeq(peng.dds) # run DESeq2
+peng.vsd <- vst(peng.dds, blind=FALSE) # VST transformation)
+resultsNames(peng.dds)
+peng.res <- DESeq2::results(peng.dds, name = "group_ko_vs_ctrl") # Astrocyte VCP vs CTRL
+gene2ens_filtered <-  filter(mus.musculus.gene2ens, gene_id %in% rownames(peng.res)) %>% unique # filter gene to ensID to only ENS names in the results tibble
+peng.res <- peng.res %>% as_tibble(rownames = "ensID") %>% left_join(gene2ens_filtered, by=c("ensID"="gene_id")) %>% mutate(gene_name= toupper(gene_name)) %>% arrange(padj) # join gene gene_nameS to res tibble & order by padj
+
+# Jiang Membralin alone
+jiang <- read.csv("/camp/lab/luscomben/home/shared/projects/patani-collab/public-data/astrocyte-membralin-mouse-jiang-2019/sample-details/samplesheet.csv") %>% 
+  mutate(sample = paste(group, "_R", replicate, sep = ""), file_salmon = file.path(dir, paste(group, "_R", replicate, sep = ""), "quant.sf"), condition = gsub("mou_mem_", "", group), group = factor(condition, levels = c("ctrl", "ko"))) %>% dplyr::select(group, replicate, sample, file_salmon)
+jiang.files <- jiang$file_salmon
+names(jiang.files) <- jiang$sample
+rownames(jiang) <- jiang$sample
+jiang.txi <- tximport(jiang.files, type="salmon", tx2gene = mus.musculus.tx2gene)
+jiang.dds <- DESeqDataSetFromTximport(jiang.txi, colData = jiang, design = ~ group)
+jiang.dds <- DESeq(jiang.dds) # run DESeq2
+jiang.vsd <- vst(jiang.dds, blind=FALSE) # VST transformation)
+resultsNames(jiang.dds)
+jiang.res <- DESeq2::results(jiang.dds, name = "group_ko_vs_ctrl") # Astrocyte VCP vs CTRL
+jiang.res <- jiang.res %>% as_tibble(rownames = "ensID") %>% left_join(mus.musculus.gene2ens, by=c("ensID"="gene_id")) %>% mutate(gene_name= toupper(gene_name)) %>% arrange(padj) 
+
+save.image("/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/deseq2.RData")
+```
+
+## Table S3. Differential expression in all datasets
+
+```{r}
+# overlap all datasets in single table: ALS, SOD1, C9orf72, A1, SOD1 TRAP, TDP43 KO & membralin KO
+als_datasets.dge <- als_datasets.res %>% dplyr::select(gene_name, hsap.ensembl = ensID, log2FC.ALS = log2FoldChange, FDR.ALS = padj) %>% mutate(direction.ALS = case_when(FDR.ALS < 0.05 & log2FC.ALS > 0 ~ "up", FDR.ALS < 0.05 & log2FC.ALS < 0 ~ "down", TRUE ~ "non-significant"))
+patani.dge <- patani.res %>% dplyr::select(gene_name, hsap.ensembl = ensID, log2FC.VCP = log2FoldChange, FDR.VCP = padj) %>% mutate(direction.VCP = case_when(FDR.VCP < 0.05 & log2FC.VCP > 0 ~ "up", FDR.VCP < 0.05 & log2FC.VCP < 0 ~ "down", TRUE ~ "non-significant"))
+barbar.dge <- barbar.res %>% dplyr::select(gene_name, hsap.ensembl = ensID, log2FC.A1 = log2FoldChange, FDR.A1 = padj) %>% mutate(direction.A1 = case_when(FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "up", FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "down", TRUE ~ "non-significant"))
+cleveland.dge <- cleveland.res %>% dplyr::select(gene_name, mmus.ensembl = ensID, log2FC.TRAP = log2FoldChange, FDR.TRAP = padj) %>% mutate(direction.TRAP = case_when(FDR.TRAP < 0.05 & log2FC.TRAP > 0 ~ "up", FDR.TRAP < 0.05 & log2FC.TRAP < 0 ~ "down", TRUE ~ "non-significant"))
+peng.dge <- peng.res %>% dplyr::select(gene_name, mmus.ensembl = ensID, log2FC.TDP43 = log2FoldChange, FDR.TDP43 = padj) %>% mutate(direction.TDP43 = case_when(FDR.TDP43 < 0.05 & log2FC.TDP43 > 0 ~ "up", FDR.TDP43 < 0.05 & log2FC.TDP43 < 0 ~ "down", TRUE ~ "non-significant"))
+jiang.dge <- jiang.res %>% dplyr::select(gene_name, mmus.ensembl = ensID, log2FC.MEM = log2FoldChange, FDR.MEM = padj) %>% mutate(direction.MEM = case_when(FDR.MEM < 0.05 & log2FC.MEM > 0 ~ "up", FDR.MEM < 0.05 & log2FC.MEM < 0 ~ "down", TRUE ~ "non-significant"))
+# mass_spec.summary <- mass_spec.res %>% dplyr::select(gene_name, logFC.ALS.MS = lfc, FDR.ALS.MS = padj)
+als_datasets_barbar.dge <- als_datasets.dge %>% full_join(patani.dge, by = c("gene_name", "hsap.ensembl")) %>% full_join(barbar.dge, by = c("gene_name", "hsap.ensembl"))
+cleveland_peng_jiang_mass_spec.dge <- full_join(cleveland.dge, peng.dge, by = c("gene_name", "mmus.ensembl")) %>% full_join(jiang.dge, by = c("gene_name", "mmus.ensembl"))
+all_datasets.dge <- full_join(als_datasets_barbar.dge, cleveland_peng_jiang_mass_spec.dge, by = "gene_name") %>% select(gene_name, hsap.ensembl, mmus.ensembl, everything())
+write.csv(all_datasets.dge, "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/TableS3.overlap_all_datasets.dge.csv", row.names = FALSE)
+```
+
+## Table S4 Mass spec results
+
+```{r}
+# DEP proteomics
+mass_spec_ac <- read.table("/camp/home/ziffo/home/projects/astrocyte-meta-analysis/expression/mass-spectrometry/ac_vcp_fractions_massspec_protein_groups.txt", sep = '\t',header = TRUE)
+mass_spec_ac$Gene.names %>% duplicated() %>% any()
+mass_spec_ac %>% group_by(Gene.names) %>% dplyr::summarize(frequency = dplyr::n()) %>%  arrange(desc(frequency)) %>% filter(frequency > 1) # for genes without an annotated genename use the Uniprot ID
+mass_spec_ac_all <- make_unique(mass_spec_ac, "Gene.names", "Protein.IDs", delim = ";")
+mass_spec_ac_all$name %>% duplicated() %>% any()
+# Generate a SummarizedExperiment object using an experimental design
+LFQ_columns <- grep("LFQ.", colnames(mass_spec_ac_all)) # get LFQ column numbers
+experimental_design <- data.frame("label" = c("C1_01","C1_02","C1_03","C5_01","C5_02","C5_03","CCbie_01","CCbie_02","CCbie_03","CGlia_01","CGlia_02","CGlia_03",
+                                   "N1_01","N1_02","N1_03","N5_01","N5_02","N5_03","NCbie_01","NCbie_02","NCbie_03", "NGlia_01","NGlia_02","NGlia_03"),
+                       "condition" = c("ctrl","ctrl","ctrl","ctrl","ctrl","ctrl","vcp","vcp","vcp","vcp","vcp","vcp",
+                                       "ctrl","ctrl","ctrl","ctrl","ctrl","ctrl","vcp","vcp","vcp", "vcp","vcp","vcp"),
+                       "replicate"= c("1","2","3","4","5","6","1","2","3","4","5","6",
+                                      "7","8","9","10","11","12","7","8","9", "10","11","12"))
+data_se <- make_se(mass_spec_ac_all, LFQ_columns, experimental_design) # create summarised experiment - this log2 transforms assay data
+data_filt <- filter_missval(data_se, thr = 12) # # Less stringent filtering - Filter proteins identified in 1/6 replicates of at least one condition 1160 / 1160
+data_norm <- normalize_vsn(data_filt) # normalise with VST
+data_imp <- impute(data_norm, fun = "MinProb", q = 0.01) # Impute missing data using random draws from a Gaussian distribution centered around a minimal value (for MNAR)
+data_diff <- test_diff(data_imp, type = "control", control = "ctrl") # Differential enrichment analysis - linear models with empirical Bayes, utilises limma. specify the control sample.
+dep <- add_rejections(data_diff, alpha = 0.05)
+data_results <- get_results(dep) # Generate a results table
+mass_spec.res <- select(data_results, gene_name = name, ID, pval = vcp_vs_ctrl_p.val, padj = vcp_vs_ctrl_p.adj, lfc = vcp_vs_ctrl_ratio)
+saveRDS(mass_spec.res, "/camp/lab/luscomben/home/users/ziffo/projects/astrocyte-a1-als-meta/expression/mass-spec/mass_spec.res_vcp_vs_ctrl.rds")
+write.csv(mass_spec.res, "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/mass-spec/Table.mass_spec.csv", row.names = FALSE)
+```
+
+
+## Fig S1 Patani, Barbar, Bradkey, Zhang clustering
+
+```{r}
+zhang_barbar_bradley_patani_tyzack_birger.pcaData <- plotPCA(zhang_barbar_bradley_patani_tyzack_birger.vsd, intgroup=c("celltype","group", "region", "replicate", "celltype_source"), returnData=TRUE) #  
+zhang_barbar_bradley_patani_tyzack_birger.percentVar <- round(100 * attr(zhang_barbar_bradley_patani_tyzack_birger.pcaData, "percentVar"))
+zhang_barbar_bradley_patani_tyzack_birger.pca <- ggplot(zhang_barbar_bradley_patani_tyzack_birger.pcaData, aes(PC1, PC2, color=celltype_source, shape = region)) + scale_colour_brewer(palette = "Paired") +  theme_bw() +  
+  theme(panel.grid = element_blank(), legend.title = element_blank(), legend.text=element_text(size=8), legend.position = "right", legend.box = "vertical", legend.spacing = unit(0.1, 'cm')) + geom_point(size=2) + 
+  xlab(paste0("PC1: ",zhang_barbar_bradley_patani_tyzack_birger.percentVar[1],"% variance")) +  ylab(paste0("PC2: ",zhang_barbar_bradley_patani_tyzack_birger.percentVar[2],"% variance")) + coord_fixed() + ggforce::geom_mark_ellipse() +
+  annotate(geom="text", x=50, y = -18, label = "iPSC astrocytes", size = 3) +  annotate(geom="text", x=-20, y = -21, label = "Fetal astrocytes", size = 3) +  annotate(geom="text", x=-38, y = -27, label = "Adult astrocytes", size = 3) +
+  annotate(geom="text", x= -32, y = 4, label = "Adult Neuron", size = 3) +  annotate(geom="text", x=-32, y = 29, label = "Adult Oligodendrocytes", size = 3) +  annotate(geom="text", x=-60, y = 60, label = "Adult Myeloid", size = 3)
+zhang_barbar_bradley_patani_tyzack_birger.pca
+ggsave(zhang_barbar_bradley_patani_tyzack_birger.pca, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/zhang_barbar_bradley_patani_tyzack_birger.pca.png", height = 7, width = 9)
+
+# Dendrogram
+zhang_barbar_bradley_patani_tyzack_birger.sampleDists <- dist(t(assay(zhang_barbar_bradley_patani_tyzack_birger.vsd)))
+zhang_barbar_bradley_patani_tyzack_birger.hc <- hclust(zhang_barbar_bradley_patani_tyzack_birger.sampleDists, method = "ward.D2")
+zhang_barbar_bradley_patani_tyzack_birger.hc$labels <- gsub("_cortex", "", zhang_barbar_bradley_patani_tyzack_birger.hc$labels) %>% gsub("_temporal_lobe", "", .) %>% gsub("CD49", "barbar", .) %>% gsub("dorsal_forebrain", "Bradley_ipsc_DFB", .) %>% gsub("ventral_forebrain", "Bradley_ipsc_VFB", .) %>% gsub("ventral_spinalcord", "Bradley_ipsc_VSC", .) %>% gsub("dorsal_spinalcord", "Bradley_ipsc_DSC", .) %>% gsub("barbar_astrocyte", "Barbar", .) %>% gsub("astrocyte_ipsc", "Clarke_ipsc", .) %>% gsub("ac_tyz_Clarke", "Tyzack", .) %>% gsub("ac_bir_Clarke", "Birger", .) %>% gsub("_R", "_", .)
+display.brewer.pal(n = 11, name = 'Paired')
+brewer.pal(n = 11, name = "Paired")
+show_col(brewer_pal(palette = "Paired")(11))
+"#A6CEE3" # light blue
+"#1F78B4" 
+"#B2DF8A" # green
+"#33A02C"
+"#FB9A99" # red
+"#E31A1C" 
+"#FDBF6F" # orange
+"#FF7F00"
+"#CAB2D6" # purple
+"#6A3D9A" 
+"#FFFF99" # yellow - replace with darker yellow for readability #F0E442
+zhang_barbar_bradley_patani_tyzack_birger.a <- c(rep("#B2DF8A", 4),
+                                                 rep("#33A02C", 6),
+                                                 rep("#A6CEE3", 4),
+                                                 rep("#E31A1C", 6),
+                                                 rep("#FB9A99", 6),
+                                                 rep("#1F78B4", 7),
+                                                 rep("#FDBF6F", 6),
+                                                 rep("#FF7F00", 12),
+                                                 rep("#F0E442", 3),
+                                                 rep("#6A3D9A", 1),
+                                                 rep("#CAB2D6", 5))
+zhang_barbar_bradley_patani_tyzack_birger.dendrogram <- ggdendrogram(zhang_barbar_bradley_patani_tyzack_birger.hc, rotate = TRUE, theme_dendro = FALSE) +  theme_classic()  + theme(axis.line=element_blank(), axis.title.x=element_blank(), axis.title.y=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(), axis.text.y= element_text(colour = zhang_barbar_bradley_patani_tyzack_birger.a, size = 9), strip.background = element_rect(colour="black", fill="white"), panel.grid = element_blank()) 
+zhang_barbar_bradley_patani_tyzack_birger.dendrogram
+ggsave(zhang_barbar_bradley_patani_tyzack_birger.dendrogram, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/zhang_barbar_bradley_patani_tyzack_birger.dendrogram_celltypes.png", height = 7, width = 4)
+
+zhang_barbar_bradley_patani_tyzack_birger.clustering <- ggarrange(zhang_barbar_bradley_patani_tyzack_birger.pca, zhang_barbar_bradley_patani_tyzack_birger.dendrogram, nrow = 2, heights = c(0.8,1), labels = c("A", "B"))
+zhang_barbar_bradley_patani_tyzack_birger.clustering
+ggsave(zhang_barbar_bradley_patani_tyzack_birger.clustering, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/FigS1.zhang_barbar_bradley_patani_tyzack_birger.clustering.png", height = 11.75, width = 8.25)
+```
+
+
+## Fig 1B Astrocyte marker heatmap {.tabset .tabset-fade .tabset-pills}
+***
+
+```{r}
+# plot heatmap of astrocyte & MN markers
+astrocyte.genes <- c("GFAP","AQP4", "VIM", "S100B","NFIX","EDNRB","MLC1","CHRDL1","F3","FZD2","EZR","RFX4","BMPR1B","GLI3","TMEM47","SLC9A3R1","FGFR3","CCDC80","CYBRD1","TNC","S1PR1","CBS","PBXIP1","SLC7A2","GJA1","EGFR","SOX9","ID4","EMP2","MGST1", "ACSBG1")
+vsd_counts.marker <- assay(zhang_barbar_bradley_patani.vsd) %>% as_tibble(rownames = "gene_id") %>% left_join(gene2ens, by = "gene_id")  %>% filter(gene_name %in% astrocyte.genes) %>% rowwise() %>%
+  mutate(astrocyte_ipsc = mean(c_across(starts_with("astrocyte_ipsc")), na.rm = TRUE), astrocyte_ipsc_barbar = mean(c_across(starts_with("CD49_astrocyte_ipsc")), na.rm = TRUE), 
+         astrocyte_ipsc_spinalcord = mean(c_across(starts_with(c("ventral_spinalcord","dorsal_spinalcord"))), na.rm = TRUE), #dsc_astrocyte_ipsc = mean(c_across(starts_with("dorsal_spinalcord")), na.rm = TRUE),
+         astrocyte_ipsc_forebrain = mean(c_across(starts_with(c("ventral_forebrain","dorsal_forebrain"))), na.rm = TRUE), #dfb_astrocyte_ipsc = mean(c_across(starts_with("dorsal_forebrain")), na.rm = TRUE), 
+         astrocyte_fetal = mean(c_across(starts_with("astrocyte_fetal")), na.rm = TRUE), astrocyte_adult = mean(c_across(starts_with("astrocyte_adult_temporal")), na.rm = TRUE), 
+         oligodendrocyte = mean(c_across(starts_with("oligodendrocyte")), na.rm = TRUE), 
+         myeloid = mean(c_across(starts_with("myeloid")), na.rm = TRUE), neuron = mean(c_across(starts_with("neuron")), na.rm = TRUE)) %>% 
+  dplyr::select(gene_name, astrocyte_ipsc, astrocyte_ipsc_barbar, astrocyte_ipsc_forebrain, astrocyte_ipsc_spinalcord, astrocyte_fetal, astrocyte_adult, oligodendrocyte, neuron, myeloid, -gene_id) %>%
+  arrange(-(astrocyte_ipsc + astrocyte_ipsc_barbar + astrocyte_fetal + astrocyte_adult + astrocyte_ipsc_spinalcord - oligodendrocyte - myeloid - neuron))  #   
+vsd_counts.marker.mat <- make_matrix(dplyr::select(vsd_counts.marker,-gene_name), pull(vsd_counts.marker,gene_name))
+colnames(vsd_counts.marker.mat)[1] <- "**astrocyte_ipsc**" # change first gene name
+celltype_marker_heatmap <- pheatmap(vsd_counts.marker.mat, cluster_rows=F, show_rownames=T, show_colnames = T, labels_column = colnames(vsd_counts.marker.mat), cluster_cols=T, fontsize = 8, scale = "row")
+ggsave(celltype_marker_heatmap[[4]], filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/Fig1B.celltype_marker_heatmap.png", height = 6, width = 4)
+
+vsd_counts.marker <- assay(zhang_barbar_bradley_patani.vsd) %>% as_tibble(rownames = "gene_id") %>% left_join(gene2ens, by = "gene_id")  %>% filter(gene_name %in% astrocyte.genes) %>% rowwise() %>%
+  mutate(astrocyte_ipsc_Clarke = mean(c_across(starts_with("astrocyte_ipsc")), na.rm = TRUE), astrocyte_ipsc_Barbar = mean(c_across(starts_with("CD49_astrocyte_ipsc")), na.rm = TRUE), 
+         astrocyte_ipsc_Bradley_VSC = mean(c_across(starts_with("ventral_spinalcord")), na.rm = TRUE), #dsc_astrocyte_ipsc = mean(c_across(starts_with("dorsal_spinalcord")), na.rm = TRUE),
+         # astrocyte_ipsc_forebrain = mean(c_across(starts_with(c("ventral_forebrain","dorsal_forebrain"))), na.rm = TRUE), #dfb_astrocyte_ipsc = mean(c_across(starts_with("dorsal_forebrain")), na.rm = TRUE), 
+         astrocyte_fetal = mean(c_across(starts_with("astrocyte_fetal")), na.rm = TRUE), astrocyte_adult = mean(c_across(starts_with("astrocyte_adult_temporal")), na.rm = TRUE), 
+         oligodendrocyte = mean(c_across(starts_with("oligodendrocyte")), na.rm = TRUE), 
+         myeloid = mean(c_across(starts_with("myeloid")), na.rm = TRUE), neuron = mean(c_across(starts_with("neuron")), na.rm = TRUE)) %>% 
+  dplyr::select(gene_name, astrocyte_ipsc_Clarke, astrocyte_ipsc_Barbar, astrocyte_ipsc_Bradley_VSC, astrocyte_fetal, astrocyte_adult, oligodendrocyte, neuron, myeloid, -gene_id) %>%
+  arrange(-(astrocyte_ipsc_Clarke + astrocyte_ipsc_Barbar + astrocyte_fetal + astrocyte_adult + astrocyte_ipsc_Bradley_VSC - oligodendrocyte - myeloid - neuron))  #   
+vsd_counts.marker.mat <- make_matrix(dplyr::select(vsd_counts.marker,-gene_name), pull(vsd_counts.marker,gene_name))
+
+colnames(vsd_counts.marker.mat)[1] <- "**astrocyte_ipsc_Clarke**" # change first gene name
+celltype_marker_heatmap <- pheatmap(vsd_counts.marker.mat, cluster_rows=F, show_rownames=T, show_colnames = T, labels_column = colnames(vsd_counts.marker.mat), cluster_cols=T, fontsize = 8, scale = "row")
+ggsave(celltype_marker_heatmap[[4]], filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/Fig1B.celltype_marker_heatmap.png", height = 6, width = 4)
+```
+
+
+## Fig 1C Phagocytosis and glutamate update 
+
+hiPSC astrocytes expressed several genes known to be critical in phagocytosis including AXL, ABCA1, MERTK, MEGF10, GAS6 (...) and glutamate uptake including EAAT1, EAAT2, GRIN2b, GRIA1, GRIK1 (...) (Fig. 1D)
+
+```{r}
+all.gene.phag_glut <- c(go.pathways.msigdb$GO_PHAGOCYTOSIS, glutamate.uptake.go) %>% unique
+all.gene.phag_glut.df = data.frame("gene_name" = all.gene.phag_glut) %>% 
+  mutate(group = case_when(gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS ~ "phagocytosis",gene_name %in% glutamate.uptake.go ~ "glutamate uptake"))
+annot <- data.frame(row.names = all.gene.phag_glut.df$gene_name, group = factor(all.gene.phag_glut.df$group))
+annot_cols <- c("#E64B35FF", "#4DBBD5FF") # , "#00A087FF", "#3C5488FF", "#F39B7FFF", "#8491B4FF"
+names(annot_cols) <- unique(all.gene.phag_glut.df$group)
+annot_cols <- list(group = annot_cols)
+
+vsd_counts.phag_glut <-  assay(zhang_barbar_bradley_patani.vsd) %>% as_tibble(rownames = "gene_id") %>% left_join(gene2ens, by = "gene_id")  %>% filter(gene_name %in% all.gene.phag_glut) %>% rowwise() %>%
+ mutate(astrocyte_ipsc_Clarke = mean(c_across(starts_with("astrocyte_ipsc")), na.rm = TRUE), astrocyte_ipsc_Barbar = mean(c_across(starts_with("CD49_astrocyte_ipsc")), na.rm = TRUE), 
+         astrocyte_ipsc_Bradley_VSC = mean(c_across(starts_with("ventral_spinalcord")), na.rm = TRUE), #dsc_astrocyte_ipsc = mean(c_across(starts_with("dorsal_spinalcord")), na.rm = TRUE),
+         # astrocyte_ipsc_forebrain = mean(c_across(starts_with(c("ventral_forebrain","dorsal_forebrain"))), na.rm = TRUE), #dfb_astrocyte_ipsc = mean(c_across(starts_with("dorsal_forebrain")), na.rm = TRUE), 
+         astrocyte_fetal = mean(c_across(starts_with("astrocyte_fetal")), na.rm = TRUE), astrocyte_adult = mean(c_across(starts_with("astrocyte_adult_temporal")), na.rm = TRUE), 
+         oligodendrocyte = mean(c_across(starts_with("oligodendrocyte")), na.rm = TRUE), 
+         myeloid = mean(c_across(starts_with("myeloid")), na.rm = TRUE), neuron = mean(c_across(starts_with("neuron")), na.rm = TRUE)) %>% 
+  dplyr::select(gene_name, astrocyte_ipsc_Clarke, astrocyte_ipsc_Barbar, astrocyte_ipsc_Bradley_VSC, astrocyte_fetal, astrocyte_adult, oligodendrocyte, neuron, myeloid, -gene_id) %>%
+  arrange(factor(gene_name, levels = all.gene.phag_glut)) %>% filter( (astrocyte_ipsc_Clarke + astrocyte_ipsc_Barbar + astrocyte_ipsc_Bradley_VSC + astrocyte_fetal + astrocyte_adult + oligodendrocyte + neuron + myeloid) > 32.5)
+
+vsd_counts.phag_glut.mat <- make_matrix(dplyr::select(vsd_counts.phag_glut,-gene_name), pull(vsd_counts.phag_glut,gene_name))
+colnames(vsd_counts.phag_glut.mat)[1] <- "**astrocyte_ipsc_Clarke**" # change first gene name
+phag_glut_heatmap <- pheatmap(vsd_counts.phag_glut.mat, cluster_rows=F, show_rownames=F, show_colnames = T, cluster_cols=F, fontsize = 8, scale = "row", gaps_row = 259,
+                                    annotation_row = annot, annotation_names_col = F, annotation_legend = FALSE, annotation_colors = annot_cols, legend = TRUE)
+ggsave(phag_glut_heatmap, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/Fig1C.phag_glut_heatmap.png", height = 6, width = 4)
+
+# most highly expressed in ipsc_astrocytes
+glutamate.receptor.go <- unique(c(go.pathways.msigdb$GO_GLUTAMATE_BINDING, go.pathways.msigdb$GO_IONOTROPIC_GLUTAMATE_RECEPTOR_ACTIVITY, go.pathways.msigdb$GO_IONOTROPIC_GLUTAMATE_RECEPTOR_SIGNALING_PATHWAY, go.pathways.msigdb$GO_IONOTROPIC_GLUTAMATE_RECEPTOR_SIGNALING_PATHWAY, go.pathways.msigdb$GO_IONOTROPIC_GLUTAMATE_RECEPTOR_BINDING, go.pathways.msigdb$GO_AMPA_GLUTAMATE_RECEPTOR_CLUSTERING))
+vsd_counts.phag_glut %>% filter(gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>% arrange(-astrocyte_ipsc) %>% pull(gene_name)
+vsd_counts.phag_glut %>% filter(gene_name %in% glutamate.uptake.go) %>% arrange(-astrocyte_ipsc) %>% pull(gene_name)
+vsd_counts.phag_glut %>% filter(gene_name %in% glutamate.receptor.go) %>% arrange(-astrocyte_ipsc) %>% select(gene_name,astrocyte_ipsc)
+assay(zhang_patani.vsd) %>% as_tibble(rownames = "gene_id") %>% left_join(gene2ens, by = "gene_id")   %>% filter(gene_name == "GRIA2") %>%
+ mutate(astrocyte_ipsc = mean(c_across(starts_with("astrocyte_ipsc")), na.rm = TRUE), CD49_astrocyte_ipsc = mean(c_across(starts_with("CD49_astrocyte_ipsc")), na.rm = TRUE), 
+         astrocyte_fetal = mean(c_across(starts_with("astrocyte_fetal")), na.rm = TRUE), astrocyte_adult = mean(c_across(starts_with("astrocyte_adult_temporal")), na.rm = TRUE), 
+         oligodendrocyte = mean(c_across(starts_with("oligodendrocyte")), na.rm = TRUE), 
+         myeloid = mean(c_across(starts_with("myeloid")), na.rm = TRUE), neuron = mean(c_across(starts_with("neuron")), na.rm = TRUE)) %>% 
+  dplyr::select(gene_name, astrocyte_ipsc, CD49_astrocyte_ipsc, astrocyte_fetal, astrocyte_adult, oligodendrocyte, neuron, myeloid, -gene_id)
+```
+
+## Table S1. Phagocytosis & Glutamate uptake genes
+
+```{r}
+vsd_counts.phag_glut %>% mutate(category = case_when(gene_name %in% glutamate.uptake.go ~ "Glutamate Uptake", gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS ~ "Phagocytosis")) %>% arrange(desc(category)) %>% dplyr::select(gene_name, category, everything()) %>% write.csv(., "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/Table.S1.phagocytosis_glutamate.uptake_gene_expression.csv")
+```
+
+
+## Fig 2 VCP vs CTRL
+
+### RNAseq figures
+
+```{r}
+# Volcano
+interesting.gene.labels <- patani.res %>% filter(padj < 0.05, gene_name %in% c(go.pathways.msigdb$GO_PHAGOCYTOSIS, glutamate.uptake.go, all.reactivity.go, "ASPN", "OGN", "ADAMTS8", "GJA5", "CALB2", "GABRA2", "GABRB2", "FAM107A", "SLC3A2", "GAD2")) %>% pull(gene_name)
+immune.up.genes <- patani.res %>% filter(padj < 0.05, log2FoldChange > 1, gene_name %in% all.reactivity.go, !gene_name %in% c("ANGPT1", "PID1", "TXNIP")) %>%  pull(gene_name)
+phagocytosis.down.genes <- patani.res %>% filter(padj < 0.05, log2FoldChange < 1, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>%  pull(gene_name)
+glutamate.uptake.down.genes <- patani.res %>% filter(padj < 0.05, log2FoldChange < 1, gene_name %in% glutamate.uptake.go) %>%  pull(gene_name)
+interesting.gene.labels.filt <- c(phagocytosis.down.genes, glutamate.uptake.down.genes, immune.up.genes, "ASPN", "GJA5", "CALB2", "GABRA2", "GABRB2", "SLC3A2") 
+
+patani.volcano <- volcano_plot_deseq(data = patani.res, labels_list = interesting.gene.labels.filt) + xlab(expression(RNAseq~log[2]~fold~change~VCP:CTRL)) + 
+  xlim(-10,10) + ylim(0,8) +
+  geom_segment(aes(x = 3, xend = 9, y= 7.5, yend= 7.5), arrow=arrow(length=unit(0.3,"cm")), color = "firebrick2" ) +
+  geom_segment(aes(x = -3, xend = -9, y= 7.5, yend= 7.5),arrow=arrow(length=unit(0.3,"cm")), color = "dodgerblue2") +
+  annotate("text", x = 6, y = 8, label = "Up in VCP", color = "firebrick2", size = 2.8) + annotate("text", x = -6, y = 8, label = "Down in VCP", color = "dodgerblue2", size = 2.8)
+patani.volcano
+
+# Gene ontology terms
+patani.dge_genes <- patani.res %>% filter(padj < 0.05) %>% group_split(log2FoldChange > 0) %>%  map("ensID") # create list of IR up/down & Expression up/down genes
+patani.dge_genes <- gost(patani.dge_genes) # run gprofiler2 on all groups - runs on all KEGG, GO, REAC,TF, WP pathways simultaneously
+patani.dge_gprofiles_filt <- patani.dge_genes$result %>% filter(!str_detect(source, "TF|CORUM")) %>% arrange( -log10(p_value) ) %>% 
+  mutate(query = case_when(query == "query_1" ~ " Down in VCP ", query == "query_2" ~ " Up in VCP "), term_name = as.factor(term_name)) 
+patani.dge_gprofiles_down <- patani.dge_gprofiles_filt %>% filter(query == " Down in VCP ")
+patani.dge_gprofiles_up <- patani.dge_gprofiles_filt %>% filter(query == " Up in VCP ")
+paste('"',unique(patani.dge_gprofiles_down$term_name),'",', sep = "", collapse = '\n') %>% cat()
+down_list <- c(
+"Type I diabetes mellitus",
+"cell periphery",
+"brain development",
+"GABA receptor Signaling",
+# "integral component of plasma membrane",
+# "plasma membrane",
+"intrinsic component of membrane",
+"plasma membrane region")
+patani.dge_gprofiles_filt_down <- patani.dge_gprofiles_filt %>% filter(query == " Down in VCP ")  %>% filter(term_name %in% down_list)
+paste('"',unique(patani.dge_gprofiles_up$term_name),'",', sep = "", collapse = '\n') %>% cat()
+up_list <- c(
+"gap junction",
+"enzyme linked receptor protein signaling pathway",
+"extracellular matrix structural constituent conferring compression resistance")
+# "blood circulation",
+# "circulatory system process",
+# "animal organ development"
+patani.dge_gprofiles_filt_up <- patani.dge_gprofiles_filt %>% filter(query == " Up in VCP ")  %>% filter(term_name %in% up_list)
+patani.dge_gprofiles_filt_combined <- bind_rows(patani.dge_gprofiles_filt_down, patani.dge_gprofiles_filt_up) %>% 
+  mutate(query = factor(query, levels = c(" Up in VCP ", " Down in VCP ")))
+patani.dge_gprofiles_filt_combined$term_name <- gsub("extracellular matrix structural constituent conferring compression resistance", "extracellular matrix", patani.dge_gprofiles_filt_combined$term_name)
+patani.dge_gprofiles_filt_combined$term_name <- gsub("enzyme linked receptor protein signaling pathway", "enzyme linked receptor signaling", patani.dge_gprofiles_filt_combined$term_name)
+patani.dge_gprofiles_filt_combined$term_name <- gsub(" pathway", "", patani.dge_gprofiles_filt_combined$term_name)
+patani.go_curated <- curated_profiles(gprofiles = patani.dge_gprofiles_filt_combined) + theme(legend.position = "none")
+patani.go_curated
+
+# which genes are driving the terms
+patani.res %>% filter(padj < 0.05, gene_name %in% go.pathways.msigdb$GO_GABA_RECEPTOR_COMPLEX)
+patani.res %>% filter(padj < 0.05, gene_name %in% go.pathways.msigdb$GO_PLASMA_MEMBRANE_REGION)
+patani.res %>% filter(padj < 0.05, gene_name %in% go.pathways.msigdb$GO_GAP_JUNCTION)
+patani.res %>% filter(padj < 0.05, gene_name %in% go.pathways.msigdb$GO_EXTRACELLULAR_MATRIX_STRUCTURAL_CONSTITUENT_CONFERRING_COMPRESSION_RESISTANCE)
+
+# GSEA violin plots: Phagocytosis, Glutamate uptke
+patani.res_phagocytosis <- filter(patani.res, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>% mutate(gene_set = "phagocytosis")
+patani.res_glutamate_uptake <- filter(patani.res, gene_name %in% glutamate.uptake.go) %>% mutate(gene_set = "glutamate uptake")
+patani.res_gene_sets <- bind_rows(patani.res_phagocytosis, patani.res_glutamate_uptake) #, patani.res_immune, patani.res_nkimmunity, patani.res_adhesion, patani.res_apmhc1)
+gene_sets_sina_plot <- sinaplot.one.sample(data =  patani.res_gene_sets, group = "gene_set", continuous = "log2FoldChange", labels = "gene_name", colours = 2,  label_number = 0, stat.y.position = 2, width = 0.1, flip = "no", stats.test = "t-test") + ylab(label = expression( log[2]~Fold~Change~VCP:CTRL )) + xlab("")  + 
+  theme(axis.text=element_text(size=9)) + #, axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_segment(aes(x = 2.5, xend = 2.5, y= 0.1, yend= 2), arrow=arrow(length=unit(0.2,"cm")), color = "black") +  geom_segment(aes(x = 2.5, xend = 2.5, y= -0.1, yend= -2),arrow=arrow(length=unit(0.2,"cm")), color = "black") +
+  annotate("text", x = 2.35, y = 1, label = "VCP Up", colour = "black", size = 2.9, angle = 90) +  annotate("text", x =2.35, y = -1, label = "VCP Down", colour = "black", size = 2.9, angle = 90) + ylim(c(-2,2)) + labs(subtitle = "GSEA RNA seq")
+  # geom_text_repel(data = filter(patani.res_gene_sets, padj < 0.05), aes(x = gene_set, y = log2FoldChange, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0, size=2.7, max.overlaps = Inf)
+gene_sets_sina_plot
+#   group            .y.   group1 group2         n statistic           p p.signif y.position
+# * <chr>            <chr> <chr>  <chr>      <int>     <dbl>       <dbl> <chr>         <dbl>
+# 1 glutamate uptake lfc   1      null model   404     29069 0.000000938 ****              2
+# 2 phagocytosis     lfc   1      null model   364     15971 0.161       ns                2
+
+# GSEA phagocytosis
+geneList <- patani.res %>% drop_na(log2FoldChange) %>% pull(log2FoldChange)
+names(geneList) <- patani.res %>% drop_na(log2FoldChange) %>% pull(gene_name) %>% as.character()
+geneList = sort(geneList, decreasing = TRUE)
+phagocytosis_genes.list <- list("phagocytosis" = patani.res$gene_name[patani.res$gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS])
+phagocytosis_fgseaRes <- fgsea(pathways = phagocytosis_genes.list, stats = geneList)
+phagocytosis_fgseaRes
+# pathway      pval      padj    log2err        ES     NES size                         leadingEdge
+# 1: phagocytosis 0.6338028 0.6338028 0.09754492 0.2385496 0.94727  240 SIRPB1,LBP,VAV1,NCF4,FPR2,PPARG,...
+
+# GSEA glutamate uptake
+glutamate.uptake_genes.list <- list("glutamate.uptake" = patani.res$gene_name[patani.res$gene_name %in% glutamate.uptake.go])
+glutamate.uptake_fgseaRes <- fgsea(pathways = glutamate.uptake_genes.list, stats = geneList)
+glutamate.uptake_fgseaRes
+#  pathway       pval       padj   log2err         ES       NES size                              leadingEdge
+# 1: glutamate.uptake 0.02476068 0.02476068 0.3524879 -0.3276907 -1.257345  401 KCNA1,PTPRT,GAD2,ADRA1A,KCND2,CACNG5,...
+```
+
+
+### Mass spec figures
+
+```{r}
+# Volcano
+mass_spec.res.volcano <- mass_spec.res %>% mutate(direction = case_when(pval < 0.05 & lfc > 0 ~ "upregulated", pval < 0.05 & lfc < 0 ~ "downregulated", TRUE ~ "unchanged"))
+mass_spec.volcano <- ggplot(data = mass_spec.res.volcano, aes(x = lfc, y =  -log10(pval), colour = direction)) +  geom_point(size = 0.5) + #xlim(1,5) + ylim(-3,3) + 
+  scale_colour_manual( values = c(unchanged = "darkgray", upregulated = "firebrick2", downregulated = "dodgerblue2") ) +  theme_bw() +  theme(panel.grid = element_blank(), legend.title = element_blank(), legend.position = "none") + 
+  ylab(expression( -log[10]~P~value )) +  xlab(expression( mass~spec~log~fold~change~VCP:CTRL )) +
+  geom_text_repel(data = filter(mass_spec.res.volcano, pval < 0.05, gene_name %in% all.reactivity.go), aes(x = lfc, y = -log10(pval), label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size=2.5, max.overlaps = Inf) + geom_hline(yintercept = -log10(0.05), linetype = 2) + geom_vline(xintercept =0, linetype = 2) +
+  geom_segment(aes(x = 0.8, xend = 2.8, y= 2.9, yend= 2.9), arrow=arrow(length=unit(0.3,"cm")), color = "firebrick2" ) +
+  geom_segment(aes(x = -0.8, xend = -2.8, y= 2.9, yend= 2.9),arrow=arrow(length=unit(0.3,"cm")), color = "dodgerblue2") +
+  annotate("text", x = 1.7, y = 3, label = "Up in VCP", color = "firebrick2", size = 2.8) + annotate("text", x = -1.7, y = 3, label = "Down in VCP", color = "dodgerblue2", size = 2.8)
+mass_spec.volcano
+
+# GO terms mass spec
+patani.mass_spec.dge_genes <- mass_spec.res %>% filter(pval < 0.05) %>% group_split(lfc > 0) %>%  map("gene_name") # create list of IR up/down & Expression up/down genes
+patani.mass_spec.dge_genes <- gost(patani.mass_spec.dge_genes) # run gprofiler2 on all groups - runs on all KEGG, GO, REAC,TF, WP pathways simultaneously
+patani.mass_spec.dge_gprofiles_filt <- patani.mass_spec.dge_genes$result %>% filter(!str_detect(source, "TF|CORUM")) %>% arrange( -log10(p_value) ) %>% 
+  mutate(query = case_when(query == "query_1" ~ " Down in VCP ", query == "query_2" ~ " Up in VCP "), term_name = as.factor(term_name)) 
+patani.mass_spec.dge_gprofiles_down <- patani.mass_spec.dge_gprofiles_filt %>% filter(query == " Down in VCP ")
+patani.mass_spec.dge_gprofiles_up <- patani.mass_spec.dge_gprofiles_filt %>% filter(query == " Up in VCP ")
+
+paste('"',unique(patani.mass_spec.dge_gprofiles_down$term_name),'",', sep = "", collapse = '\n') %>% cat()
+down_list <- c(
+"hippocampus; glial cells[?Medium]",
+"intracellular transport",
+"axo-dendritic transport",
+"large ribosomal subunit",
+"axonal transport",
+"neuron projection cytoplasm",
+"cell-substrate junction",
+"RNA binding",
+"focal adhesion",
+"cerebellum; cells in molecular layer[?Medium]",
+"axon cytoplasm",
+"cytoplasm",
+"retrograde axonal transport",
+"extracellular vesicle")
+patani.mass_spec.dge_gprofiles_filt_down <- patani.mass_spec.dge_gprofiles_filt %>% filter(query == " Down in VCP ")  %>% filter(term_name %in% down_list)
+patani.mass_spec.go_curated <- curated_profiles(gprofiles = patani.mass_spec.dge_gprofiles_filt_down, cols = "dodgerblue2") + theme(legend.position = "none")
+patani.mass_spec.go_curated
+
+# how many of phagocytosis & glutamate uptake detected proteins are downregulated? 
+mass_spec.res %>% filter(gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS, lfc < 0) # 26 / 31
+mass_spec.res %>% filter(gene_name %in% glutamate.uptake.go, lfc < 0) # 26 / 44
+```
+
+### Merge
+
+```{r}
+fig2.merged <- ggarrange(
+  ggarrange(patani.volcano, patani.go_curated, ncol = 2, labels = c("A", "B"), widths = c(1,0.8)),
+  ggarrange(mass_spec.volcano, patani.mass_spec.go_curated, ncol = 2, labels = c("C", "D"), widths = c(1,0.8)),
+  # ggarrange(gene_sets_sina_plot, mass_spec.gene_sets_sina_plot, ncol = 2, labels = c("C", "D"), widths = c(1,1)),
+  nrow = 2, heights = c(1,1))
+fig2.merged
+ggsave(fig2.merged, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/fig2.merged.png", height = 7, width = 7)
+```
+
+## Fig 3 A1 vs ALS
+
+### Scatter correlation 
+
+```{r}
+als_datasets.dge <- als_datasets.res %>% dplyr::select(gene_name, ensID, log2FC.ALS = log2FoldChange, FDR.ALS = padj)
+barbar.dge <- barbar.res %>% dplyr::select(gene_name, ensID, log2FC.A1 = log2FoldChange, FDR.A1 = padj)
+als_datasets_barbar.dge <- full_join(als_datasets.dge, barbar.dge, by = c("gene_name", "ensID"))
+
+als_datasets_barbar.dge <- als_datasets_barbar.dge %>% mutate(overlap = case_when(FDR.ALS < 0.05 & FDR.A1 < 0.05 ~ "overlapping", # down in ALS
+                                                        FDR.ALS < 0.05 ~ "ALS specific",
+                                                        FDR.A1 < 0.05 ~ "A1 specific",
+                                                        TRUE ~ "None"),
+                                    overlap_direction = case_when(FDR.ALS < 0.05 & log2FC.ALS > 0 & FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "overlapping up", # down in ALS
+                                                                  FDR.ALS < 0.05 & log2FC.ALS < 0 & FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "overlapping down",
+                                                                  FDR.ALS < 0.05 & log2FC.ALS > 0 ~ "ALS specific up",
+                                                                  FDR.ALS < 0.05 & log2FC.ALS < 0 ~ "ALS specific down",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "A1 specific up",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "A1 specific down",
+                                                                  TRUE ~ "None"),
+                                    overlap_direction = factor(overlap_direction, levels = c("overlapping up", "overlapping down", "ALS specific up", "ALS specific down", "A1 specific up", "A1 specific down", "None")),
+                                    overlap = factor(overlap, levels = c("overlapping",  "ALS specific", "A1 specific", "None"))) %>%
+  arrange(overlap_direction)
+table(als_datasets_barbar.dge$overlap)
+table(als_datasets_barbar.dge$overlap_direction)
+als_datasets_barbar.dge
+
+cor.test(x = als_datasets_barbar.dge$log2FC.ALS, y = als_datasets_barbar.dge$log2FC.A1) # 0.1088784 
+t.test( x = als_datasets_barbar.dge$log2FC.ALS, y = als_datasets_barbar.dge$log2FC.A1, paired = TRUE )
+
+A1_ALS_scatter <- ggscatter(als_datasets_barbar.dge, x = "log2FC.ALS", y = "log2FC.A1", color = "overlap_direction", palette = c("firebrick2", "dodgerblue2", "grey", "grey", "grey", "grey", "grey"), cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~ALS:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   xlim(-10,10) + ylim(-10,10) +
+    geom_smooth(data = als_datasets_barbar.dge, aes(x = log2FC.ALS, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(als_datasets_barbar.dge, overlap_direction %in%  c("overlapping up", "overlapping down"), gene_name %in% all.reactivity.go, log2FC.A1 < 9), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+  annotate(geom="text", x=6, y=10, label="Up in both ALS & A1", color="firebrick2", size = 3.2)  + annotate(geom="text", x=-6, y=-10, label="Down in both ALS & A1", color="dodgerblue2", size = 3.2) #+ labs(subtitle = "Differential gene expression")
+A1_ALS_scatter
+
+# Overlap tested using Fisher's exact test (alternative=greater)
+ALS.DGE.up.genes <- als_datasets.res %>% filter(padj < 0.05, log2FoldChange > 0) %>% pull(gene_name)
+A1.DGE.up.genes <- barbar.res %>% filter(padj < 0.05, log2FoldChange > 0) %>% pull(gene_name)
+genome.size <- als_datasets.res %>% distinct(gene_name) %>% nrow
+go.obj <- newGeneOverlap(ALS.DGE.up.genes,
+                         A1.DGE.up.genes,
+                         genome.size=genome.size)
+go.obj <- testGeneOverlap(go.obj)
+go.obj # overlapping p-value indicates whether the overlap is significant
+print(go.obj)
+# GeneOverlap object:
+# listA size=1072
+# listB size=4686
+# Intersection size=313
+# Overlapping p-value=2.4e-98
+# Jaccard Index=0.1
+
+
+ALS.DGE.down.genes <- als_datasets.res %>% filter(padj < 0.05, log2FoldChange < 0) %>% pull(gene_name)
+A1.DGE.down.genes <- barbar.res %>% filter(padj < 0.05, log2FoldChange < 0) %>% pull(gene_name)
+genome.size <- als_datasets.res %>% distinct(gene_name) %>% nrow
+go.obj <- newGeneOverlap(ALS.DGE.down.genes,
+                         A1.DGE.down.genes,
+                         genome.size=genome.size)
+go.obj <- testGeneOverlap(go.obj)
+go.obj # overlapping p-value indicates whether the overlap is significant
+print(go.obj)
+# GeneOverlap object:
+# listA size=1348
+# listB size=4461
+# Intersection size=466
+# Overlapping p-value=1.2e-189
+# Jaccard Index=0.1
+```
+
+### Venn overlap DEGs
+
+```{r}
+# Upregulated DEG
+venn_a1_ALS.up <- as.ggplot(
+  ~draw.pairwise.venn(
+    area1 = nrow( filter(als_datasets_barbar.dge, overlap_direction %in% c("ALS specific up", "overlapping up"))),
+    area2 = nrow( filter(als_datasets_barbar.dge, overlap_direction %in% c("A1 specific up", "overlapping up")) ),
+    cross.area = nrow(filter(als_datasets_barbar.dge, overlap_direction %in% "overlapping up")),
+    category = c("ALS", "A1"),  fill = c("dodgerblue2", "firebrick2"),
+    alpha = 0.5, cat.fontfamily = "sans", cat.pos = c(0,0), cat.dist =rep(0.04, 2), scaled = FALSE)) +
+  labs(subtitle = "Overlap Up") + theme(plot.subtitle = element_text(hjust = 0.5, colour = "firebrick2"))
+venn_a1_ALS.up
+
+# Downregulated DEG
+venn_a1_ALS.down <- as.ggplot(
+  ~draw.pairwise.venn(
+    area1 = nrow( filter(als_datasets_barbar.dge, overlap_direction %in% c("ALS specific down", "overlapping down")) ),
+    area2 = nrow( filter(als_datasets_barbar.dge, overlap_direction %in% c("A1 specific down", "overlapping down")) ),
+    cross.area = nrow(filter(als_datasets_barbar.dge, overlap_direction == "overlapping down")),
+    category = c("ALS", "A1"),  fill = c("dodgerblue2", "firebrick2"),
+    alpha = 0.5, cat.fontfamily = "sans", cat.pos = c(0,0), cat.dist =rep(0.04, 2), scaled = FALSE)) +
+  labs(subtitle = "Overlap Down") + theme(plot.subtitle = element_text(hjust = 0.5, colour = "dodgerblue2"))
+venn_a1_ALS.down
+
+# Overlaping genes involved with A1 reactivity
+als_datasets_barbar.dge %>% filter(overlap_direction == "overlapping up" | overlap_direction == "overlapping down") %>% filter(gene_name %in% all.reactivity.go) 
+als_datasets_barbar.dge %>% filter(overlap_direction == "overlapping up" | overlap_direction == "overlapping down") %>% filter(gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) 
+als_datasets_barbar.dge %>% filter(overlap_direction == "overlapping up" | overlap_direction == "overlapping down") %>% filter(gene_name %in% glutamate.uptake.go) 
+```
+
+
+### GO terms from overlapping DEGs
+
+```{r}
+als_datasets_barbar.dge_overlap_genes <- als_datasets_barbar.dge %>% filter(overlap_direction == "overlapping up" | overlap_direction == "overlapping down" ) %>% split(.$overlap_direction) %>%  map("ensID")
+als_datasets_barbar.dge_overlap_genes <- gost(als_datasets_barbar.dge_overlap_genes) # run gprofiler2 on all groups - runs on all KEGG, GO, REAC,TF, WP pathways simultaneously
+als_datasets_barbar.dge_overlap_gprofiles_filt <- als_datasets_barbar.dge_overlap_genes$result %>% filter(str_detect(source, "KEGG|GO:BP|GO:MF|GO:CC|REAC|CORUM")) %>% arrange( -log10(p_value) ) %>% mutate( term_name = as.factor(term_name)) 
+als_datasets_barbar.dge_overlap_gprofiles_filt
+als_datasets_barbar.dge_overlap_gprofiles_filt_dge.up <- als_datasets_barbar.dge_overlap_gprofiles_filt %>% filter(query == "overlapping up")
+als_datasets_barbar.dge_overlap_gprofiles_filt_dge.down <- als_datasets_barbar.dge_overlap_gprofiles_filt %>% filter(query == "overlapping down")
+paste('"',unique(als_datasets_barbar.dge_overlap_gprofiles_filt_dge.up$term_name),'",', sep = "", collapse = '\n') %>% cat()
+als_datasets_barbar.dge.up_curated_list <- c("cell adhesion mediated by integrin",
+#"cell adhesion",
+"BMP signaling pathway",
+# "cell activation",
+"response to stress",
+"wound healing",
+# "apoptotic signaling pathway",
+"focal adhesion",
+"immune system process",
+"collagen binding",
+"response to endoplasmic reticulum stress",
+"regulation of cell death",
+#"Collagen formation",
+# "response to chemical",
+#"Elastic fibre formation",
+#"connective tissue development",
+"cellular response to chemical stimulus",
+#"collagen fibril organization",
+#"glycoprotein metabolic process",
+"extracellular vesicle",
+#"positive regulation of cell motility",
+#"collagen-containing extracellular matrix",
+#"extracellular matrix",
+#"endoplasmic reticulum membrane",
+"Protein processing in endoplasmic reticulum",
+"extracellular matrix organization",
+"endoplasmic reticulum")
+
+als_datasets_barbar.dge_overlap_gprofiles_filt_dge.up <- als_datasets_barbar.dge_overlap_gprofiles_filt_dge.up %>% filter(term_name %in% als_datasets_barbar.dge.up_curated_list) %>% mutate(query = "upregulated")
+als_datasets_barbar.dge_overlap_gprofiles_filt_dge.up$term_name <- gsub(" organization", "", als_datasets_barbar.dge_overlap_gprofiles_filt_dge.up$term_name) %>% gsub("Protein processing in endoplasmic reticulum", "ER protein processing", .) %>% gsub("chemical ", "", .) %>% gsub("endoplasmic reticulum stress", "ER stress", .) %>% gsub("mediated ", "", .)
+paste('"',unique(als_datasets_barbar.dge_overlap_gprofiles_filt_dge.down$term_name),'",', sep = "", collapse = '\n') %>% cat()
+als_datasets_barbar.dge.up_curated_list <- c(
+"gliogenesis",
+#"Activation of NMDA receptors and postsynaptic events",
+#"cytoskeleton",
+"voltage-gated ion channel activity",
+"GABA-ergic synapse",
+"synaptic signaling",
+#"presynapse",
+#"dendrite",
+"glutamatergic synapse",
+"axon",
+#"synaptic membrane",
+#"postsynapse",
+#"somatodendritic compartment",
+"neuron development",
+"generation of neurons",
+#"cell junction",
+"plasma membrane bounded cell projection",
+"neuron projection",
+"nervous system development",
+"synapse")
+als_datasets_barbar.dge_overlap_gprofiles_filt_dge.down <- als_datasets_barbar.dge_overlap_gprofiles_filt_dge.down %>% filter(term_name %in% als_datasets_barbar.dge.up_curated_list) %>% mutate(query = "downregulated")
+als_datasets_barbar.dge_overlap_gprofiles_filt_dge.down$term_name <- gsub("bounded cell ", "", als_datasets_barbar.dge_overlap_gprofiles_filt_dge.down$term_name) %>% gsub(" activity", "", .)
+als_datasets_barbar.dge_overlap_gprofiles_filt_dge.up_down <- bind_rows(als_datasets_barbar.dge_overlap_gprofiles_filt_dge.up, als_datasets_barbar.dge_overlap_gprofiles_filt_dge.down) %>% 
+  mutate(query = factor(query, levels = c("upregulated", "downregulated")))
+als_datasets_barbar.go_curated <- curated_profiles(gprofiles = als_datasets_barbar.dge_overlap_gprofiles_filt_dge.up_down, colours = 2) + labs(subtitle = "A1 & ALS")
+als_datasets_barbar.go_curated
+ggsave(als_datasets_barbar.go_curated, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/als_datasets_barbar.go_curated.png", height = 8, width = 5)
+
+als_datasets_barbar.dge_overlap_gprofiles_filt <- apply(als_datasets_barbar.dge_overlap_gprofiles_filt,2,as.character)
+write.csv(als_datasets_barbar.dge_overlap_gprofiles_filt, "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/als_datasets_barbar_overlap_go_terms.csv")
+```
+
+### GSEA glut/phag
+
+GSEA of glutamate uptake & phagocytosis GO categories in ALS and A1 astrocytes
+
+```{r}
+# GSEA violin plots: Phagocytosis, Glutamate uptke
+als_datasets.res_phagocytosis <- filter(als_datasets.res, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>% mutate(gene_set = "phagocytosis", dataset = "ALS")
+als_datasets.res_glutamate_uptake <- filter(als_datasets.res, gene_name %in% glutamate.uptake.go) %>% mutate(gene_set = "glutamate uptake", dataset = "ALS")
+# als_datasets.res_gene_sets <- bind_rows(als_datasets.res_phagocytosis, als_datasets.res_glutamate_uptake)
+barbar.res_phagocytosis <- filter(barbar.res, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>% mutate(gene_set = "phagocytosis", dataset = "A1")
+barbar.res_glutamate_uptake <- filter(barbar.res, gene_name %in% glutamate.uptake.go) %>% mutate(gene_set = "glutamate uptake", dataset = "A1")
+als_datasets.barbar.res_gene_sets <- bind_rows(als_datasets.res_phagocytosis, als_datasets.res_glutamate_uptake, barbar.res_phagocytosis, barbar.res_glutamate_uptake)
+
+# Glutamate uptake GSEA:
+als_datasets.res_glutamate_uptake <- filter(als_datasets.res, gene_name %in% glutamate.uptake.go) %>% mutate(dataset = "ALS vs CTRL")
+barbar.res_glutamate_uptake <- filter(barbar.res, gene_name %in% glutamate.uptake.go) %>% mutate(dataset = "A1 vs A0")
+als_datasets.barbar.res_glutamate_uptake <- bind_rows(barbar.res_glutamate_uptake, als_datasets.res_glutamate_uptake) %>% mutate(dataset = factor(dataset, levels = c("ALS vs CTRL", "A1 vs A0")))
+als_datasets.barbar.glutamate_uptake.sina_plot <- sinaplot.one.sample(data =  als_datasets.barbar.res_glutamate_uptake, group = "dataset", continuous = "log2FoldChange", labels = "gene_name", colours = 2,  label_number = 0, stat.y.position = 2, width = 0.1, flip = "no", stats.test = "t-test") + ylab(label = expression( log[2]~Fold~Change )) + xlab("")  + theme(axis.text=element_text(size=8)) + 
+  geom_segment(aes(x = 2.5, xend = 2.5, y= 0.1, yend= 2), arrow=arrow(length=unit(0.2,"cm")), color = "black") +  geom_segment(aes(x = 2.5, xend = 2.5, y= -0.1, yend= -2),arrow=arrow(length=unit(0.2,"cm")), color = "black") +
+  annotate("text", x = 2.35, y = 1, label = "Glut Uptake Up", colour = "black", size = 2.9, angle = 90) +  annotate("text", x =2.35, y = -1, label = "Glut Uptake Down", colour = "black", size = 2.9, angle = 90) + ylim(c(-2,2))  + labs(subtitle = "GSEA Glutamate Uptake")
+als_datasets.barbar.glutamate_uptake.sina_plot
+# group       .y.   group1 group2         n statistic        p p.signif y.position
+# * <fct>       <chr> <chr>  <chr>      <int>     <dbl>    <dbl> <chr>         <dbl>
+# 1 ALS vs CTRL lfc   1      null model   404     22510 4.78e-15 ****              2
+# 2 A1 vs A0    lfc   1      null model   404     28012 1.22e- 7 ****              2
+
+# Phagocytosis GSEA
+als_datasets.res_phagocytosis <- filter(als_datasets.res, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>% mutate(dataset = "ALS vs CTRL")
+barbar.res_phagocytosis <- filter(barbar.res, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>% mutate(dataset = "A1 vs A0")
+als_datasets.barbar.res_phagocytosis <- bind_rows(barbar.res_phagocytosis, als_datasets.res_phagocytosis) %>% mutate(dataset = factor(dataset, levels = c("ALS vs CTRL", "A1 vs A0")))
+als_datasets.barbar.phagocytosis.sina_plot <- sinaplot.one.sample(data =  als_datasets.barbar.res_phagocytosis, group = "dataset", continuous = "log2FoldChange", labels = "gene_name", colours = 2,  label_number = 0, stat.y.position = 2, width = 0.1, flip = "no", stats.test = "t-test") + ylab(label = expression( log[2]~Fold~Change )) + xlab("")  + theme(axis.text=element_text(size=8)) + 
+  geom_segment(aes(x = 2.5, xend = 2.5, y= 0.1, yend= 2), arrow=arrow(length=unit(0.2,"cm")), color = "black") +  geom_segment(aes(x = 2.5, xend = 2.5, y= -0.1, yend= -2),arrow=arrow(length=unit(0.2,"cm")), color = "black") +
+  annotate("text", x = 2.35, y = 1, label = "Phagocytosis Up", colour = "black", size = 2.9, angle = 90) +  annotate("text", x =2.35, y = -1, label = "Phagocytosis Down", colour = "black", size = 2.9, angle = 90) + ylim(c(-2,2))  + labs(subtitle = "GSEA Phagocytosis")
+als_datasets.barbar.phagocytosis.sina_plot
+# group       .y.   group1 group2         n statistic         p p.signif y.position
+# * <fct>       <chr> <chr>  <chr>      <int>     <dbl>     <dbl> <chr>         <dbl>
+# 1 ALS vs CTRL lfc   1      null model   364     20163 0.00264   **                2
+# 2 A1 vs A0    lfc   1      null model   364     21644 0.0000216 ****              2
+
+ggarrange(als_datasets.barbar.glutamate_uptake.sina_plot, als_datasets.barbar.phagocytosis.sina_plot, ncol = 2)
+
+
+# GSEA phagocytosis
+# ALS
+als_datasets.geneList <- als_datasets.res %>% drop_na(log2FoldChange) %>% pull(log2FoldChange)
+names(als_datasets.geneList) <- als_datasets.res %>% drop_na(log2FoldChange) %>% pull(gene_name) %>% as.character()
+als_datasets.geneList = sort(als_datasets.geneList, decreasing = TRUE)
+als_datasets.phagocytosis_genes.list <- list("phagocytosis" = als_datasets.res$gene_name[als_datasets.res$gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS])
+als_datasets.phagocytosis_fgseaRes <- fgsea(pathways = als_datasets.phagocytosis_genes.list, stats = als_datasets.geneList)
+als_datasets.phagocytosis_fgseaRes
+# pathway      pval      padj    log2err       ES       NES size                          leadingEdge
+# 1: phagocytosis 0.7063142 0.7063142 0.04744832 0.219256 0.9146904  257 PTPRC,PPARG,THBS1,NCF2,MYH2,FPR2,...
+
+# A1
+barbar.geneList <- barbar.res %>% drop_na(log2FoldChange) %>% pull(log2FoldChange)
+names(barbar.geneList) <- barbar.res %>% drop_na(log2FoldChange) %>% pull(gene_name) %>% as.character()
+barbar.geneList = sort(barbar.geneList, decreasing = TRUE)
+barbar.phagocytosis_genes.list <- list("phagocytosis" = barbar.res$gene_name[barbar.res$gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS])
+barbar.phagocytosis_fgseaRes <- fgsea(pathways = barbar.phagocytosis_genes.list, stats = barbar.geneList)
+barbar.phagocytosis_fgseaRes
+# pathway         pval         padj   log2err        ES      NES size
+# 1: phagocytosis 4.500503e-07 4.500503e-07 0.6749629 0.4248308 1.812759  257
+
+
+# GSEA glutamate uptake
+# ALS
+als_datasets.glutamate.uptake_genes.list <- list("glutamate.uptake" = als_datasets.res$gene_name[als_datasets.res$gene_name %in% glutamate.uptake.go])
+als_datasets.glutamate.uptake_fgseaRes <- fgsea(pathways = als_datasets.glutamate.uptake_genes.list, stats = als_datasets.geneList)
+als_datasets.glutamate.uptake_fgseaRes
+# pathway  pval  padj log2err         ES       NES size
+# 1: glutamate.uptake 1e-10 1e-10      NA -0.5920696 -2.758083  403
+
+# A1
+barbar.glutamate.uptake_genes.list <- list("glutamate.uptake" = barbar.res$gene_name[barbar.res$gene_name %in% glutamate.uptake.go])
+barbar.glutamate.uptake_fgseaRes <- fgsea(pathways = barbar.glutamate.uptake_genes.list, stats = barbar.geneList)
+barbar.glutamate.uptake_fgseaRes
+#   pathway        pval        padj   log2err         ES       NES size
+# 1: glutamate.uptake 0.000192317 0.000192317 0.5188481 -0.3118546 -1.457907  400
+
+# list DEGs within GSEA:
+filter(als_datasets_barbar.dge, gene_name %in% glutamate.uptake.go, FDR.ALS < 0.05, log2FC.ALS < 0, FDR.A1 < 0.05, log2FC.A1 < 0) %>% arrange(-c(log2FC.ALS + log2FC.A1))
+filter(als_datasets_barbar.dge, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS, FDR.ALS < 0.05, log2FC.ALS > 0, FDR.A1 < 0.05, log2FC.A1 > 0)
+
+
+# # Faceted GSEA violin plot
+# als_datasets.barbar.stat.test <- als_datasets.barbar.res_gene_sets %>% group_by(dataset, gene_set) %>%  t_test(log2FoldChange ~ 1, mu = 0) %>%  add_significance()  %>% add_xy_position(x = "log2FoldChange") %>% mutate(y.position = 4)
+# als_datasets.barbar.stat.test
+# #  gene_set         dataset .y.            group1 group2         n statistic    df        p p.signif y.position groups     xmin  xmax
+# #   <chr>            <chr>   <chr>          <chr>  <chr>      <int>     <dbl> <dbl>    <dbl> <chr>         <dbl> <list>    <int> <int>
+# # 1 glutamate uptake A1 log2FoldChange 1      null model   404    -4.03    402 6.75e- 5 ****              4 <chr [2]>     1     2
+# # 2 phagocytosis     A1 log2FoldChange 1      null model   364     1.53    252 1.26e- 1 ns                4 <chr [2]>     1     2
+# # 3 glutamate uptake ALS    log2FoldChange 1      null model   404   -10.1     397 1.16e-21 ****              4 <chr [2]>     1     2
+# # 4 phagocytosis     ALS    log2FoldChange 1      null model   364    -0.883   226 3.78e- 1 ns                4 <chr [2]>     1     2
+# 
+# barbar.als_datasets.gene_sets_sina_plot <- ggplot(als_datasets.barbar.res_gene_sets, aes(x = gene_set, y= log2FoldChange, color = gene_set)) + 
+#       geom_violin() + geom_sina(size = 0.5) + geom_boxplot(data = als_datasets.barbar.res_gene_sets, aes(fill = gene_set), colour = "black", width=0.2, outlier.shape = NA) +
+#       scale_colour_manual(values = c("firebrick2", "dodgerblue3")) + scale_fill_manual(values = c("firebrick2", "dodgerblue3")) +  
+#       theme_classic() + theme(legend.position = "none", axis.text=element_text(size=8), axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) + #, axis.text.x = element_text(angle = 45, hjust = 1)) +
+#       facet_wrap(. ~ dataset) + geom_hline(yintercept = 0, linetype = 2) +
+#   stat_pvalue_manual(als_datasets.barbar.stat.test,x = "gene_set", hide.ns = TRUE) +
+#   ylab(label = expression(GSEA~LFC~ALS:CTRL) ) + xlab("") + ylim(c(-4,4)) +
+#   geom_segment(aes(x = 2.5, xend = 2.5, y= 1, yend= 4), arrow=arrow(length=unit(0.3,"cm")), color = "black") +  geom_segment(aes(x = 2.5, xend = 2.5, y= -1, yend= -4),arrow=arrow(length=unit(0.3,"cm")), color = "black") +
+#   annotate("text", x = 2.35, y = 2.5, label = "ALS Up", colour = "black", size = 2.8, angle = 90) +  annotate("text", x =2.35, y = -2.5, label = "ALS Down", colour = "black", size = 2.89, angle = 90) 
+# barbar.als_datasets.gene_sets_sina_plot
+```
+
+### Signalling Pathway PROGENy
+
+https://github.com/saezlab/transcriptutorial/blob/master/scripts/03_Pathway_activity_with_Progeny.md
+https://saezlab.github.io/progeny/
+
+Pathway RespOnsive GENes (PROGENy) estimates signaling pathway activity 
+
+```{r}
+als_datasets.res.matrix <- als_datasets.res %>% dplyr::select(gene_name, log2FoldChange) %>%  drop_na(log2FoldChange) %>% distinct(gene_name, .keep_all = TRUE) %>% column_to_rownames(var = "gene_name") %>% as.matrix()
+als_datasets.ALS.PathwayActivity_zscore <- progeny(als_datasets.res.matrix, scale=TRUE, organism="Human", top = 100, perm = 10000, z_scores = TRUE) %>%  t()# enrichment analysis of each pathway activity using competitive permutation approach
+colnames(als_datasets.ALS.PathwayActivity_zscore) <- "NES"
+als_datasets.ALS.PathwayActivity_zscore_df <- as.data.frame(als_datasets.ALS.PathwayActivity_zscore) %>% rownames_to_column(var = "Pathway") %>% dplyr::arrange(NES) %>%  dplyr::mutate(Pathway = factor(Pathway))
+barbar.res.matrix <- barbar.res %>% dplyr::select(gene_name, log2FoldChange) %>%  drop_na(log2FoldChange) %>% distinct(gene_name, .keep_all = TRUE) %>% column_to_rownames(var = "gene_name") %>% as.matrix()
+barbar.A1.PathwayActivity_zscore <- progeny(barbar.res.matrix, scale=TRUE, organism="Human", top = 100, perm = 10000, z_scores = TRUE) %>%  t() # enrichment analysis of each pathway activity
+colnames(barbar.A1.PathwayActivity_zscore) <- "NES"
+barbar.A1.PathwayActivity_zscore_df <- as.data.frame(barbar.A1.PathwayActivity_zscore) %>% rownames_to_column(var = "Pathway") %>% dplyr::arrange(NES) %>%  dplyr::mutate(Pathway = factor(Pathway))
+barbar.als_datasets.PathwayActivity_zscore_df <- mutate(barbar.A1.PathwayActivity_zscore_df, dataset = "A1") %>% bind_rows(mutate(als_datasets.ALS.PathwayActivity_zscore_df, dataset = "ALS"))
+# barbar.als_datasets.PathwayActivity_zscore_df.meanNES <- barbar.als_datasets.PathwayActivity_zscore_df %>% group_by(Pathway) %>% summarise(mean_NES = mean(NES)) %>% arrange(mean_NES)
+barbar.als_datasets.PathwayActivity_zscore_df.meanNES <- barbar.als_datasets.PathwayActivity_zscore_df %>% filter(dataset == "ALS") %>% arrange(NES)
+barbar.als_datasets.PathwayActivity_zscore_df$Pathway <- factor(barbar.als_datasets.PathwayActivity_zscore_df$Pathway, levels = barbar.als_datasets.PathwayActivity_zscore_df.meanNES$Pathway)
+barbar.als_datasets.progeny.pathwayActivity <- ggplot(barbar.als_datasets.PathwayActivity_zscore_df, aes(x=Pathway, y = NES, fill = dataset)) + theme_classic() +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.7) + theme(legend.position = "right", legend.title = element_blank(), axis.title = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 8), axis.text.y = element_text(size =8)) + coord_cartesian(ylim=c(-2.5,7.5)) +
+  geom_hline(yintercept = 0, linetype = 2, colour = "darkgrey") + scale_fill_manual( values = c("firebrick2", "dodgerblue2")) + xlab("") + ylab(expression(Normalised~enrichment)) + labs(subtitle = "Signalling Pathway activity")
+barbar.als_datasets.progeny.pathwayActivity
+```
+
+### Merge
+
+```{r}
+# landscape
+fig3.merged <- ggarrange(
+  ggarrange(A1_ALS_scatter, ggarrange(venn_a1_ALS.up, venn_a1_ALS.down, ncol = 1), als_datasets_barbar.go_curated, ncol = 3, labels = c("B", "C", "D"), widths = c(1,0.6,0.9)),
+  ggarrange(als_datasets.barbar.glutamate_uptake.sina_plot, als_datasets.barbar.phagocytosis.sina_plot, barbar.als_datasets.progeny.pathwayActivity, ncol = 3, labels = c("E", "F", "G"), widths = c(0.5,0.5,1)),
+  # NULL, als_datasets.barbar.liddlelow.heatmap[[4]],
+  nrow = 2, heights = c(1,0.7))
+fig3.merged
+ggsave(fig3.merged, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/fig3.merged.png", height = 9, width = 11)
+
+# portrait
+# fig3.merged <- ggarrange(
+#   ggarrange(A1_ALS_scatter, ggarrange(venn_a1_ALS.up, venn_a1_ALS.down, ncol = 1), ncol = 2, labels = c("A", "B"), widths = c(1,0.7)),
+#   ggarrange(als_datasets_barbar.go_curated, als_datasets.barbar.glutamate_uptake.sina_plot, als_datasets.barbar.phagocytosis.sina_plot, ncol = 3, labels = c("C", "D"), widths = c(1,0.7,0.7)),
+#   # ggarrange(barbar.als_datasets.progeny.pathwayActivity, A1_ALS_TFactivities.scatter, ncol = 2, labels = c("E", "F"), widths = c(1.1,0.9)),
+#   barbar.als_datasets.progeny.pathwayActivity,
+#   nrow = 3, heights = c(1,1,0.9), labels = c("","", "E"))
+# fig3.merged
+# ggsave(fig3.merged, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/fig3.merged.png", height = 11, width = 9)
+```
+
+
+## Fig S2 Liddelow genes ALS vs CTRL
+
+### Liddelow heatmap & correlation
+
+```{r}
+annot <- data.frame(row.names = astrocyte.reactivity.markers$gene_name, group = factor(astrocyte.reactivity.markers$group))
+als_datasets_barbar.dge.liddelow.genes <- als_datasets_barbar.dge  %>% filter(gene_name %in% astrocyte.reactive.genes) %>%
+  dplyr::select(gene_name, "ALS vs CTRL" = log2FC.ALS, "A1 vs A0" = log2FC.A1) %>% dplyr::arrange(factor(gene_name, levels = rownames(annot)))
+als_datasets_barbar.dge.liddelow.genes.mat <- make_matrix(dplyr::select(als_datasets_barbar.dge.liddelow.genes,-gene_name), dplyr::pull(als_datasets_barbar.dge.liddelow.genes,gene_name))
+als_datasets_barbar.dge.liddelow.genes.mat <- scale(als_datasets_barbar.dge.liddelow.genes.mat, center = FALSE) # make variance equal between ALS & A1
+breaksList = seq(-2, 2, by = 0.1) 
+als_datasets.barbar.liddlelow.heatmap <- pheatmap(t(als_datasets_barbar.dge.liddelow.genes.mat), cluster_rows=F, show_rownames=T, show_colnames = T, cluster_cols=F, fontsize = 8, gaps_col = c(13,29), gaps_row = 1)
+als_datasets.barbar.liddlelow.heatmap
+                  # annotation_col = annot, annotation_names_col = F, annotation_legend = FALSE, annotation_colors = annot_cols, main = "", 
+                  # color = colorRampPalette(rev(greenred(75)))(length(breaksList)),breaks = breaksList,
+                  # cellheight = 9, cellwidth = 14, border_color=NA, legend = TRUE)
+
+
+# correlate liddelow genes:
+als_datasets.res.liddelow <- als_datasets.res %>% dplyr::select(gene_name, log2FC.ALS = log2FoldChange, padj.ALS = padj) %>%  drop_na(log2FC.ALS) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
+barbar.res.liddelow <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange, padj.A1 = padj) %>%  drop_na(log2FC.A1) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
+als_datasets_barbar.liddelow <- full_join(als_datasets.res.liddelow, barbar.res.liddelow, by = "gene_name")
+A1_ALS_scatter.liddelow <- ggscatter(als_datasets_barbar.liddelow, x = "log2FC.ALS", y = "log2FC.A1", cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~ALS:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   #xlim(-10,10) + ylim(-10,10) +
+    # geom_smooth(data = als_datasets_barbar.liddelow, aes(x = log2FC.ALS, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(als_datasets_barbar.liddelow, log2FC.A1 > 0.1, log2FC.ALS > 0.1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +      geom_text_repel(data = filter(als_datasets_barbar.liddelow, log2FC.A1 < -0.1, log2FC.ALS < -0.1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+  annotate(geom="text", x=1, y=10, label="ALS & A1 both Up", color="firebrick2", size = 3.2) + labs(subtitle = expression(Liddelow~markers~correlation))
+A1_ALS_scatter.liddelow
+
+
+# Test overlap
+als_datasets.liddelow_GEup <- als_datasets_barbar.liddelow %>% filter(log2FC.ALS > 0) %>% pull(gene_name)
+barbar.liddelow_GEup <- als_datasets_barbar.liddelow %>% filter(log2FC.A1 > 0) %>% pull(gene_name)
+go.obj <- newGeneOverlap(als_datasets.liddelow_GEup,
+                         barbar.liddelow_GEup,
+                         genome.size=nrow(astrocyte.reactivity.markers))
+testGeneOverlap(go.obj)
+# GeneOverlap object:
+# listA size=29
+# listB size=31
+# Intersection size=23
+# Overlapping p-value=0.046
+# Jaccard Index=0.6
+```
+
+### Merge
+
+```{r}
+figS2.merged <- ggarrange(NULL, annotate_figure(als_datasets.barbar.liddlelow.heatmap[[4]],  bottom = text_grob("Pan-reactive                                A1                                           A2", color = "black", hjust = 0.6, vjust = -14.6, x = 0.5, face = "italic", size = 10)),
+                                                A1_ALS_scatter.liddelow, nrow = 3, labels = c("A", "", "B"), heights = c(0.04, 0.2,0.8))
+figS2.merged
+ggsave(figS2.merged, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/figS2.merged.png", height = 8, width = 7)
+```
+
+
+## Fig S3 PROGENy scatters
+
+```{r}
+prog_matrix <- getModel("Human", top=100) %>% as.data.frame()  %>% tibble::rownames_to_column("GeneID")
+
+# TGFb responsive genes
+TGFb_matrix <- prog_matrix %>% as.tibble() %>% select(GeneID, TGFb) %>% filter(TGFb != 0)
+als_datasets.res.TGFb <- als_datasets.res %>% dplyr::select(gene_name, log2FC.ALS = log2FoldChange) %>%  drop_na(log2FC.ALS) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% TGFb_matrix$GeneID)
+barbar.res.TGFb <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange) %>%  drop_na(log2FC.A1) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% TGFb_matrix$GeneID)
+als_datasets_barbar.TGFb <- full_join(als_datasets.res.TGFb, barbar.res.TGFb, by = "gene_name")
+A1_ALS_scatter.TGFb <- ggscatter(als_datasets_barbar.TGFb, x = "log2FC.ALS", y = "log2FC.A1", cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~ALS:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   #xlim(-10,10) + ylim(-10,10) +
+    # geom_smooth(data = als_datasets_barbar.TGFb, aes(x = log2FC.ALS, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(als_datasets_barbar.TGFb, log2FC.A1 > 0, log2FC.ALS > 1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +      geom_text_repel(data = filter(als_datasets_barbar.TGFb, log2FC.A1 < -1, log2FC.ALS < -1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+  annotate(geom="text", x=3, y=5, label="ALS & A1 both Up", color="firebrick2", size = 3.2) + labs(subtitle = expression(TGFb~Pathway~correlation))
+A1_ALS_scatter.TGFb
+
+# WNT responsive genes
+WNT_matrix <- prog_matrix %>% as.tibble() %>% select(GeneID, WNT) %>% filter(WNT != 0)
+als_datasets.res.WNT <- als_datasets.res %>% dplyr::select(gene_name, log2FC.ALS = log2FoldChange) %>%  drop_na(log2FC.ALS) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% WNT_matrix$GeneID)
+barbar.res.WNT <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange) %>%  drop_na(log2FC.A1) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% WNT_matrix$GeneID)
+als_datasets_barbar.WNT <- full_join(als_datasets.res.WNT, barbar.res.WNT, by = "gene_name")
+A1_ALS_scatter.WNT <- ggscatter(als_datasets_barbar.WNT, x = "log2FC.ALS", y = "log2FC.A1", cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~ALS:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   #xlim(-10,10) + ylim(-10,10) +
+    # geom_smooth(data = als_datasets_barbar.WNT, aes(x = log2FC.ALS, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(als_datasets_barbar.WNT, log2FC.A1 > 0, log2FC.ALS > 1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +      geom_text_repel(data = filter(als_datasets_barbar.WNT, log2FC.A1 < -1, log2FC.ALS < -1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+  annotate(geom="text", x=2, y=10, label="ALS & A1 both Up", color="firebrick2", size = 3.2) + labs(subtitle = expression(WNT~Pathway~correlation))
+A1_ALS_scatter.WNT
+
+# Hypoxia responsive genes
+Hypoxia_matrix <- prog_matrix %>% as.tibble() %>% select(GeneID, Hypoxia) %>% filter(Hypoxia != 0)
+als_datasets.res.Hypoxia <- als_datasets.res %>% dplyr::select(gene_name, log2FC.ALS = log2FoldChange) %>%  drop_na(log2FC.ALS) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% Hypoxia_matrix$GeneID)
+barbar.res.Hypoxia <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange) %>%  drop_na(log2FC.A1) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% Hypoxia_matrix$GeneID)
+als_datasets_barbar.Hypoxia <- full_join(als_datasets.res.Hypoxia, barbar.res.Hypoxia, by = "gene_name")
+A1_ALS_scatter.Hypoxia <- ggscatter(als_datasets_barbar.Hypoxia, x = "log2FC.ALS", y = "log2FC.A1", cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~ALS:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   #xlim(-10,10) + ylim(-10,10) +
+    # geom_smooth(data = als_datasets_barbar.Hypoxia, aes(x = log2FC.ALS, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(als_datasets_barbar.Hypoxia, log2FC.A1 > 0, log2FC.ALS > 1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +      geom_text_repel(data = filter(als_datasets_barbar.Hypoxia, log2FC.A1 < -1, log2FC.ALS < -1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+  annotate(geom="text", x=2, y=4, label="ALS & A1 both Up", color="firebrick2", size = 3.2) + labs(subtitle = expression(Hypoxia~Pathway~correlation))
+A1_ALS_scatter.Hypoxia
+
+# TNFa responsive genes
+TNFa_matrix <- prog_matrix %>% as.tibble() %>% select(GeneID, TNFa) %>% filter(TNFa != 0)
+als_datasets.res.TNFa <- als_datasets.res %>% dplyr::select(gene_name, log2FC.ALS = log2FoldChange) %>%  drop_na(log2FC.ALS) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% TNFa_matrix$GeneID)
+barbar.res.TNFa <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange) %>%  drop_na(log2FC.A1) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% TNFa_matrix$GeneID)
+als_datasets_barbar.TNFa <- full_join(als_datasets.res.TNFa, barbar.res.TNFa, by = "gene_name")
+A1_ALS_scatter.TNFa <- ggscatter(als_datasets_barbar.TNFa, x = "log2FC.ALS", y = "log2FC.A1", cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~ALS:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   #xlim(-10,10) + ylim(-10,10) +
+    # geom_smooth(data = als_datasets_barbar.TNFa, aes(x = log2FC.ALS, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(als_datasets_barbar.TNFa, log2FC.A1 > 0, log2FC.ALS > 1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +      geom_text_repel(data = filter(als_datasets_barbar.TNFa, log2FC.A1 < -1, log2FC.ALS < -1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+  annotate(geom="text", x=2, y=10, label="ALS & A1 both Up", color="firebrick2", size = 3.2) + labs(subtitle = expression(TNFa~Pathway~correlation))
+A1_ALS_scatter.TNFa
+
+
+# VEGF responsive genes
+VEGF_matrix <- prog_matrix %>% as.tibble() %>% select(GeneID, VEGF) %>% filter(VEGF != 0)
+als_datasets.res.VEGF <- als_datasets.res %>% dplyr::select(gene_name, log2FC.ALS = log2FoldChange) %>%  drop_na(log2FC.ALS) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% VEGF_matrix$GeneID)
+barbar.res.VEGF <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange) %>%  drop_na(log2FC.A1) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% VEGF_matrix$GeneID)
+als_datasets_barbar.VEGF <- full_join(als_datasets.res.VEGF, barbar.res.VEGF, by = "gene_name")
+A1_ALS_scatter.VEGF <- ggscatter(als_datasets_barbar.VEGF, x = "log2FC.ALS", y = "log2FC.A1", cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~ALS:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   #xlim(-10,10) + ylim(-10,10) +
+    # geom_smooth(data = als_datasets_barbar.VEGF, aes(x = log2FC.ALS, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(als_datasets_barbar.VEGF, log2FC.A1 > 0, log2FC.ALS > 1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +      geom_text_repel(data = filter(als_datasets_barbar.VEGF, log2FC.A1 < -1, log2FC.ALS < -1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+  annotate(geom="text", x=2, y=4, label="ALS & A1 both Up", color="firebrick2", size = 3.2) + labs(subtitle = expression(VEGF~Pathway~correlation))
+A1_ALS_scatter.VEGF
+
+# NFkB responsive genes
+NFkB_matrix <- prog_matrix %>% as.tibble() %>% select(GeneID, NFkB) %>% filter(NFkB != 0)
+als_datasets.res.NFkB <- als_datasets.res %>% dplyr::select(gene_name, log2FC.ALS = log2FoldChange) %>%  drop_na(log2FC.ALS) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% NFkB_matrix$GeneID)
+barbar.res.NFkB <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange) %>%  drop_na(log2FC.A1) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% NFkB_matrix$GeneID)
+als_datasets_barbar.NFkB <- full_join(als_datasets.res.NFkB, barbar.res.NFkB, by = "gene_name")
+A1_ALS_scatter.NFkB <- ggscatter(als_datasets_barbar.NFkB, x = "log2FC.ALS", y = "log2FC.A1", cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~ALS:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   #xlim(-10,10) + ylim(-10,10) +
+    # geom_smooth(data = als_datasets_barbar.NFkB, aes(x = log2FC.ALS, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(als_datasets_barbar.NFkB, log2FC.A1 > 0, log2FC.ALS > 1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +      geom_text_repel(data = filter(als_datasets_barbar.NFkB, log2FC.A1 < -1, log2FC.ALS < -1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+  annotate(geom="text", x=2, y=10, label="ALS & A1 both Up", color="firebrick2", size = 3.2) + labs(subtitle = expression(NFkB~Pathway~correlation))
+A1_ALS_scatter.NFkB
+
+# PI3K responsive genes
+PI3K_matrix <- prog_matrix %>% as.tibble() %>% select(GeneID, PI3K) %>% filter(PI3K != 0)
+als_datasets.res.PI3K <- als_datasets.res %>% dplyr::select(gene_name, log2FC.ALS = log2FoldChange) %>%  drop_na(log2FC.ALS) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% PI3K_matrix$GeneID)
+barbar.res.PI3K <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange) %>%  drop_na(log2FC.A1) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% PI3K_matrix$GeneID)
+als_datasets_barbar.PI3K <- full_join(als_datasets.res.PI3K, barbar.res.PI3K, by = "gene_name")
+A1_ALS_scatter.PI3K <- ggscatter(als_datasets_barbar.PI3K, x = "log2FC.ALS", y = "log2FC.A1", cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~ALS:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   #xlim(-10,10) + ylim(-10,10) +
+    # geom_smooth(data = als_datasets_barbar.PI3K, aes(x = log2FC.ALS, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(als_datasets_barbar.PI3K, log2FC.A1 > 0, log2FC.ALS > 1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +      geom_text_repel(data = filter(als_datasets_barbar.PI3K, log2FC.A1 < -1, log2FC.ALS < -1), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+  annotate(geom="text", x=3, y=5, label="Up in both ALS & A1", color="firebrick2", size = 3.2) + labs(subtitle = expression(PI3K~Pathway~correlation))
+A1_ALS_scatter.PI3K
+
+figS3.merged <- ggarrange(A1_ALS_scatter.TGFb, A1_ALS_scatter.WNT, A1_ALS_scatter.Hypoxia, A1_ALS_scatter.TNFa, A1_ALS_scatter.VEGF, A1_ALS_scatter.NFkB, ncol = 2, nrow = 3)
+figS3.merged
+ggsave(figS3.merged, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/figS3.merged.png", height = 11.75, width = 8.25)
+```
+
+
+## Fig 4 TRAP TDP43 Membralin
+
+### SOD1 TRAP
+
+#### Scatterplot
+
+```{r}
+cleveland.dge <- cleveland.res %>% dplyr::select(gene_name, log2FC.SOD1_TRAP = log2FoldChange, FDR.SOD1_TRAP = padj) %>% filter(gene_name %in% gene2ens$gene_name) 
+barbar.dge <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange, FDR.A1 = padj)
+cleveland_barbar.dge <- full_join(cleveland.dge, barbar.dge, by = c("gene_name"))
+
+cleveland_barbar.dge <- cleveland_barbar.dge %>% mutate(overlap = case_when(FDR.SOD1_TRAP < 0.05 & FDR.A1 < 0.05 ~ "overlapping", # down in SOD1_TRAP
+                                                        FDR.SOD1_TRAP < 0.05 ~ "SOD1_TRAP specific",
+                                                        FDR.A1 < 0.05 ~ "A1 specific",
+                                                        TRUE ~ "None"),
+                                    overlap_direction = case_when(FDR.SOD1_TRAP < 0.05 & log2FC.SOD1_TRAP > 0 & FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "overlapping up", # down in SOD1_TRAP
+                                                                  FDR.SOD1_TRAP < 0.05 & log2FC.SOD1_TRAP < 0 & FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "overlapping down",
+                                                                  FDR.SOD1_TRAP < 0.05 & log2FC.SOD1_TRAP > 0 ~ "SOD1_TRAP specific up",
+                                                                  FDR.SOD1_TRAP < 0.05 & log2FC.SOD1_TRAP < 0 ~ "SOD1_TRAP specific down",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "A1 specific up",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "A1 specific down",
+                                                                  TRUE ~ "None"),
+                                    overlap_direction = factor(overlap_direction, levels = c("overlapping up", "overlapping down", "SOD1_TRAP specific up", "SOD1_TRAP specific down", "A1 specific up", "A1 specific down", "None")),
+                                    overlap = factor(overlap, levels = c("overlapping",  "SOD1_TRAP specific", "A1 specific", "None"))) %>%
+  arrange(overlap_direction)
+table(cleveland_barbar.dge$overlap)
+table(cleveland_barbar.dge$overlap_direction)
+cleveland_barbar.dge
+
+cor.test(x = cleveland_barbar.dge$log2FC.SOD1_TRAP, y = cleveland_barbar.dge$log2FC.A1) # 0.1088784 
+t.test( x = cleveland_barbar.dge$log2FC.SOD1_TRAP, y = cleveland_barbar.dge$log2FC.A1, paired = TRUE )
+
+A1_SOD1_TRAP_scatter <- ggscatter(cleveland_barbar.dge, x = "log2FC.SOD1_TRAP", y = "log2FC.A1", color = "overlap_direction", palette = c("firebrick2", "dodgerblue3", "grey", "grey", "grey", "grey", "grey"), cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~SOD1~TRAP:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5, cor.coef.size = 3) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   xlim(-5,5) + ylim(-10,11) +
+    geom_smooth(data = cleveland_barbar.dge, aes(x = log2FC.SOD1_TRAP, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(cleveland_barbar.dge, overlap_direction %in%  c("overlapping up", "overlapping down"), gene_name %in% all.reactivity.go, log2FC.A1 < 9.5), aes(x = log2FC.SOD1_TRAP, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 20) +  
+  annotate(geom="text", x=3, y=11, label="SOD1 TRAP & A1 Up", color="firebrick2", size = 3.2)  + annotate(geom="text", x=-3, y=-10, label="SOD1 TRAP & A1 Down", color="dodgerblue3", size = 3.2) + labs(subtitle = "SOD1 TRAP vs A1")
+A1_SOD1_TRAP_scatter
+```
+
+#### Venn
+
+```{r}
+# Upregulated DEG
+venn_cleveland_barbar.up <- as.ggplot(
+  ~draw.pairwise.venn(
+    area1 = nrow( filter(cleveland_barbar.dge, overlap_direction %in% c("SOD1_TRAP specific up","overlapping up") )),
+    area2 = nrow( filter(cleveland_barbar.dge, overlap_direction %in% c("A1 specific up","overlapping up") )),
+    cross.area = nrow(filter(cleveland_barbar.dge, overlap_direction %in% "overlapping up")),
+    category = c("SOD1-TRAP", "A1"),  fill = c("dodgerblue2", "firebrick2"),
+    alpha = 0.5, cat.fontfamily = "sans", cat.pos = c(10,-10), cat.dist =rep(0.04, 2), scaled = FALSE)) +
+  labs(subtitle = "Overlap Up") + theme(plot.subtitle = element_text(hjust = 0.5, colour = "firebrick2"))
+venn_cleveland_barbar.up
+
+# Downregulated DEG
+venn_cleveland_barbar.down <- as.ggplot(
+  ~draw.pairwise.venn(
+    area1 = nrow( filter(cleveland_barbar.dge, overlap_direction %in% c("SOD1_TRAP specific down", "overlapping down") )),
+    area2 = nrow( filter(cleveland_barbar.dge, overlap_direction %in% c("A1 specific down", "overlapping down"))),
+    cross.area = nrow(filter(cleveland_barbar.dge, overlap_direction == "overlapping down")),
+    category = c("SOD1-TRAP", "A1"),  fill = c("dodgerblue2", "firebrick2"),
+    alpha = 0.5, cat.fontfamily = "sans", cat.pos = c(10,-10), cat.dist =rep(0.04, 2), scaled = FALSE)) +
+  labs(subtitle = "Overlap Down") + theme(plot.subtitle = element_text(hjust = 0.5, colour = "dodgerblue2"))
+venn_cleveland_barbar.up
+
+cleveland.A1_venn <- ggarrange(venn_cleveland_barbar.up, venn_cleveland_barbar.down, nrow = 2)
+cleveland.A1_venn
+
+SOD1_TRAP_A1_up.go.obj <- newGeneOverlap(barbar.res.dge.up,
+                         cleveland.res.dge.up,
+                         genome.size=nrow(distinct(gene2ens, gene_name)))
+testGeneOverlap(SOD1_TRAP_A1_up.go.obj)
+# GeneOverlap object:
+# listA size=4686
+# listB size=500
+# Intersection size=153
+# Overlapping p-value=3.1e-51
+# Jaccard Index=0.0
+
+SOD1_TRAP_A1_down.go.obj <- newGeneOverlap(barbar.dge.down,
+                         cleveland.res.dge.down,
+                         genome.size=nrow(distinct(gene2ens, gene_name)))
+testGeneOverlap(SOD1_TRAP_A1_down.go.obj)
+# GeneOverlap object:
+# listA size=4461
+# listB size=356
+# Intersection size=101
+# Overlapping p-value=5.7e-33
+# Jaccard Index=0.0
+```
+
+
+#### GO overlap
+
+```{r}
+# SOD1 TRAP
+cleveland_barbar.dge_overlap_genes <- cleveland_barbar.dge %>% filter(overlap_direction == "overlapping up" | overlap_direction == "overlapping down" ) %>% split(.$overlap_direction) %>%  map("gene_name")
+cleveland_barbar.dge_overlap_genes <- gost(cleveland_barbar.dge_overlap_genes) # run gprofiler2 on all groups - runs on all KEGG, GO, REAC,TF, WP pathways simultaneously
+cleveland_barbar.dge_overlap_gprofiles_filt <- cleveland_barbar.dge_overlap_genes$result %>% filter(str_detect(source, "KEGG|GO:BP|GO:MF|GO:CC|REAC|CORUM")) %>% arrange( -log10(p_value) ) %>% mutate( term_name = as.factor(term_name)) 
+cleveland_barbar.dge_overlap_gprofiles_filt
+cleveland_barbar.dge_overlap_gprofiles_filt_dge.up <- cleveland_barbar.dge_overlap_gprofiles_filt %>% filter(query == "overlapping up")
+cleveland_barbar.dge_overlap_gprofiles_filt_dge.down <- cleveland_barbar.dge_overlap_gprofiles_filt %>% filter(query == "overlapping down")
+paste('"',unique(cleveland_barbar.dge_overlap_gprofiles_filt_dge.up$term_name),'",', sep = "", collapse = '\n') %>% cat()
+cleveland_barbar.dge.up_curated_list <- c(
+"cell communication",
+"Signaling by Interleukins",
+"cell surface receptor signaling pathway",
+"inflammatory response",
+"immune response",
+"Interferon alpha/beta signaling",
+"immune system process",
+"defense response",
+"response to stress",
+"response to cytokine")
+cleveland_barbar.dge_overlap_gprofiles_filt_dge.up <- cleveland_barbar.dge_overlap_gprofiles_filt_dge.up %>% filter(term_name %in% cleveland_barbar.dge.up_curated_list) %>% mutate(query = "upregulated")
+cleveland_barbar.dge_overlap_gprofiles_filt_dge.up$term_name <- gsub("cell surface receptor", "receptor", cleveland_barbar.dge_overlap_gprofiles_filt_dge.up$term_name) %>% gsub("alpha/beta ", "", .)
+
+paste('"',unique(cleveland_barbar.dge_overlap_gprofiles_filt_dge.down$term_name),'",', sep = "", collapse = '\n') %>% cat()
+cleveland_barbar.dge.up_curated_list <- c(
+"spinal cord development",
+"actin cytoskeleton",
+"generation of neurons",
+"adherens junction",
+"neuron differentiation",
+"Deactivation of the beta-catenin transactivating complex",
+"nervous system development",
+"cell cortex")
+cleveland_barbar.dge_overlap_gprofiles_filt_dge.down <- cleveland_barbar.dge_overlap_gprofiles_filt_dge.down %>% filter(term_name %in% cleveland_barbar.dge.up_curated_list) %>% mutate(query = "downregulated")
+cleveland_barbar.dge_overlap_gprofiles_filt_dge.down$term_name <- gsub("Deactivation of the beta-catenin transactivating complex", "beta-catenin complex", cleveland_barbar.dge_overlap_gprofiles_filt_dge.down$term_name)
+
+cleveland_barbar.dge_overlap_gprofiles_filt_dge.up_down <- bind_rows(cleveland_barbar.dge_overlap_gprofiles_filt_dge.up, cleveland_barbar.dge_overlap_gprofiles_filt_dge.down) %>% 
+  mutate(query = factor(query, levels = c("upregulated", "downregulated")))
+cleveland_barbar.go_curated <- curated_profiles(gprofiles = cleveland_barbar.dge_overlap_gprofiles_filt_dge.up_down, colours = 2) + labs(subtitle = "A1 & SOD1 TRAP")
+cleveland_barbar.go_curated
+
+cleveland_barbar.dge_overlap_gprofiles_filt <- apply(cleveland_barbar.dge_overlap_gprofiles_filt,2,as.character)
+write.csv(cleveland_barbar.dge_overlap_gprofiles_filt, "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/cleveland_barbar_overlap_go_terms.csv")
+```
+
+
+### TDP43 KO
+
+#### Scatterplot
+
+```{r}
+peng.dge <- peng.res %>% dplyr::select(gene_name, log2FC.TDP43_KO = log2FoldChange, FDR.TDP43_KO = padj) %>% filter(gene_name %in% gene2ens$gene_name) 
+barbar.dge <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange, FDR.A1 = padj)
+peng_barbar.dge <- full_join(peng.dge, barbar.dge, by = c("gene_name"))
+
+peng_barbar.dge <- peng_barbar.dge %>% mutate(overlap = case_when(FDR.TDP43_KO < 0.05 & FDR.A1 < 0.05 ~ "overlapping", # down in TDP43_KO
+                                                        FDR.TDP43_KO < 0.05 ~ "TDP43_KO specific",
+                                                        FDR.A1 < 0.05 ~ "A1 specific",
+                                                        TRUE ~ "None"),
+                                    overlap_direction = case_when(FDR.TDP43_KO < 0.05 & log2FC.TDP43_KO > 0 & FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "overlapping up", # down in TDP43_KO
+                                                                  FDR.TDP43_KO < 0.05 & log2FC.TDP43_KO < 0 & FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "overlapping down",
+                                                                  FDR.TDP43_KO < 0.05 & log2FC.TDP43_KO > 0 ~ "TDP43_KO specific up",
+                                                                  FDR.TDP43_KO < 0.05 & log2FC.TDP43_KO < 0 ~ "TDP43_KO specific down",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "A1 specific up",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "A1 specific down",
+                                                                  TRUE ~ "None"),
+                                    overlap_direction = factor(overlap_direction, levels = c("overlapping up", "overlapping down", "TDP43_KO specific up", "TDP43_KO specific down", "A1 specific up", "A1 specific down", "None")),
+                                    overlap = factor(overlap, levels = c("overlapping",  "TDP43_KO specific", "A1 specific", "None"))) %>%
+  arrange(overlap_direction)
+table(peng_barbar.dge$overlap)
+table(peng_barbar.dge$overlap_direction)
+peng_barbar.dge
+
+cor.test(x = peng_barbar.dge$log2FC.TDP43_KO, y = peng_barbar.dge$log2FC.A1) # 0.1088784 
+t.test( x = peng_barbar.dge$log2FC.TDP43_KO, y = peng_barbar.dge$log2FC.A1, paired = TRUE )
+
+A1_TDP43_KO_scatter <- ggscatter(peng_barbar.dge, x = "log2FC.TDP43_KO", y = "log2FC.A1", color = "overlap_direction", palette = c("firebrick2", "dodgerblue3", "grey", "grey", "grey", "grey", "grey"), cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~TDP43~KO:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5, cor.coef.size = 3) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   xlim(-5,5) + ylim(-10,11) +
+    geom_smooth(data = peng_barbar.dge, aes(x = log2FC.TDP43_KO, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(peng_barbar.dge, overlap_direction %in%  c("overlapping up", "overlapping down"), gene_name %in% all.reactivity.go, log2FC.A1 < 9.5), aes(x = log2FC.TDP43_KO, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 20) +  
+  annotate(geom="text", x=3, y=11, label="TDP43-KO & A1 Up", color="firebrick2", size = 3.2)  + annotate(geom="text", x=-3, y=-10, label="TDP43-KO & A1 Down", color="dodgerblue3", size = 3.2)  + labs(subtitle = "TDP43-KO vs A1")
+A1_TDP43_KO_scatter
+```
+
+#### Venn
+
+```{r}
+# Upregulated DEG
+venn_peng_barbar.up <- as.ggplot(
+  ~draw.pairwise.venn(
+    area1 = nrow( filter(peng_barbar.dge, overlap_direction %in% c("TDP43_KO specific up","overlapping up")) ),
+    area2 = nrow( filter(peng_barbar.dge, overlap_direction %in% c("A1 specific up","overlapping up")) ),
+    cross.area = nrow(filter(peng_barbar.dge, overlap_direction %in% "overlapping up")),
+    category = c("TDP43-KO", "A1"),  fill = c("dodgerblue2", "firebrick2"),
+    alpha = 0.5, cat.fontfamily = "sans", cat.pos = c(0,0), cat.dist =rep(0.04, 2), scaled = FALSE)) +
+  labs(subtitle = "Overlap Up") + theme(plot.subtitle = element_text(hjust = 0.5, colour = "firebrick2"))
+venn_peng_barbar.up
+
+# Downregulated DEG
+venn_peng_barbar.down <- as.ggplot(
+  ~draw.pairwise.venn(
+    area1 = nrow( filter(peng_barbar.dge, overlap_direction %in% c("TDP43_KO specific down", "overlapping down")) ),
+    area2 = nrow( filter(peng_barbar.dge, overlap_direction %in% c("A1 specific down", "overlapping down")) ),
+    cross.area = nrow(filter(peng_barbar.dge, overlap_direction == "overlapping down")),
+    category = c("TDP43-KO", "A1"),  fill = c("dodgerblue2", "firebrick2"),
+    alpha = 0.5, cat.fontfamily = "sans", cat.pos = c(0,0), cat.dist =rep(0.04, 2), scaled = FALSE)) +
+  labs(subtitle = "Overlap Down") + theme(plot.subtitle = element_text(hjust = 0.5, colour = "dodgerblue2"))
+venn_peng_barbar.up
+
+peng.A1_venn <- ggarrange(venn_peng_barbar.up, venn_peng_barbar.down, nrow = 2)
+peng.A1_venn
+
+TDP43_KO_A1_up.go.obj <- newGeneOverlap(barbar.res.dge.up,
+                         peng.res.dge.up,
+                         genome.size=nrow(distinct(gene2ens, gene_name)))
+testGeneOverlap(TDP43_KO_A1_up.go.obj)
+# GeneOverlap object:
+# listA size=4686
+# listB size=827
+# Intersection size=214
+# Overlapping p-value=2.8e-57
+# Jaccard Index=0.0
+
+TDP43_KO_A1_down.go.obj <- newGeneOverlap(barbar.res.dge.down,
+                         peng.res.dge.down,
+                         genome.size=nrow(distinct(gene2ens, gene_name)))
+testGeneOverlap(TDP43_KO_A1_down.go.obj)
+# GeneOverlap object:
+# listA size=4461
+# listB size=854
+# Intersection size=255
+# Overlapping p-value=6.5e-87
+# Jaccard Index=0.1
+
+# Define ALS & A1 genes:
+patani_birger_tyzack_barbar.dge.up <- patani_birger_tyzack_barbar.dge %>% filter((FDR.VCP < 0.05 & log2FC.VCP > 0) | (FDR.SOD1 < 0.05 & log2FC.SOD1 > 0)  | (FDR.C9orf72 < 0.05 & log2FC.C9orf72 > 0) & (FDR.A1 < 0.05 & log2FC.A1 > 0)) %>% pull(gene_name) %>% unique 
+patani_birger_tyzack_barbar.dge.down <- patani_birger_tyzack_barbar.dge %>% filter((FDR.VCP < 0.05 & log2FC.VCP < 0) | (FDR.SOD1 < 0.05 & log2FC.SOD1 < 0)  | (FDR.C9orf72 < 0.05 & log2FC.C9orf72 < 0) & (FDR.A1 < 0.05 & log2FC.A1 < 0) ) %>% pull(gene_name) %>% unique 
+peng.res.dge.up <- peng.res %>% filter(padj < 0.05, log2FoldChange > 0) %>% filter(gene_name %in% gene2ens$gene_name) %>% pull(gene_name) %>% unique 
+peng.res.dge.down <- peng.res %>% filter(padj < 0.05, log2FoldChange < 0) %>% filter(gene_name %in% gene2ens$gene_name) %>% pull(gene_name) %>% unique 
+
+peng.ALS.up_genes <- list("TRAP" = peng.res.dge.up, "ALS" = patani_birger_tyzack_barbar.dge.up)
+peng.ALS.down_genes <- list("TRAP" = peng.res.dge.down, "ALS" = patani_birger_tyzack_barbar.dge.down)
+peng.ALS_venn_up <- ggvenn(peng.ALS.up_genes, fill_color = c("dodgerblue3", "firebrick2"),show_percentage = FALSE, stroke_size = 0.5, set_name_size = 3, text_size = 2.8) + labs(subtitle = "Overlap Up") + theme(plot.subtitle = element_text(hjust = 0.5, size = 10, colour = "firebrick2"))
+peng.ALS_venn_up
+peng.ALS_venn_down <- ggvenn(peng.ALS.down_genes, fill_color = c("dodgerblue3", "firebrick2"),show_percentage = FALSE, stroke_size = 0.5, set_name_size = 3, text_size = 2.8) + labs(subtitle = "Overlap Down") + theme(plot.subtitle = element_text(hjust = 0.5, size = 10, colour = "firebrick2"))
+peng.ALS_venn_down
+
+TDP43_KO_ALS_up.go.obj <- newGeneOverlap(patani_birger_tyzack_barbar.dge.up,
+                         peng.res.dge.up,
+                         genome.size=nrow(distinct(gene2ens, gene_name)))
+testGeneOverlap(TDP43_KO_ALS_up.go.obj)
+# GeneOverlap object:
+# listA size=1541
+# listB size=827
+# Intersection size=90
+# Overlapping p-value=6.9e-31
+# Jaccard Index=0.0
+
+TDP43_KO_ALS_down.go.obj <- newGeneOverlap(patani_birger_tyzack_barbar.dge.down,
+                         peng.res.dge.down,
+                         genome.size=nrow(distinct(gene2ens, gene_name)))
+testGeneOverlap(TDP43_KO_ALS_down.go.obj)
+# GeneOverlap object:
+# listA size=2159
+# listB size=854
+# Intersection size=185
+# Overlapping p-value=2.1e-89
+# Jaccard Index=0.1
+```
+
+
+#### GO overlap
+
+```{r}
+# TDP43 KO
+peng_barbar.dge_overlap_genes <- peng_barbar.dge %>% filter(overlap_direction == "overlapping up" | overlap_direction == "overlapping down" ) %>% split(.$overlap_direction) %>%  map("gene_name")
+peng_barbar.dge_overlap_genes <- gost(peng_barbar.dge_overlap_genes) # run gprofiler2 on all groups - runs on all KEGG, GO, REAC,TF, WP pathways simultaneously
+peng_barbar.dge_overlap_gprofiles_filt <- peng_barbar.dge_overlap_genes$result %>% filter(str_detect(source, "KEGG|GO:BP|GO:MF|GO:CC|REAC|CORUM")) %>% arrange( -log10(p_value) ) %>% mutate( term_name = as.factor(term_name)) 
+peng_barbar.dge_overlap_gprofiles_filt
+peng_barbar.dge_overlap_gprofiles_filt_dge.up <- peng_barbar.dge_overlap_gprofiles_filt %>% filter(query == "overlapping up")
+peng_barbar.dge_overlap_gprofiles_filt_dge.down <- peng_barbar.dge_overlap_gprofiles_filt %>% filter(query == "overlapping down")
+paste('"',unique(peng_barbar.dge_overlap_gprofiles_filt_dge.up$term_name),'",', sep = "", collapse = '\n') %>% cat()
+peng_barbar.dge.up_curated_list <- c(
+"response to stress",
+"MHC class I peptide loading complex",
+"collagen-containing extracellular matrix",
+"response to stimulus",
+"Glycolysis",
+"response to cytokine",
+"HIF-1 signaling pathway",
+"NADH metabolic process",
+"protein binding",
+"extracellular vesicle",
+"response to chemical")
+peng_barbar.dge_overlap_gprofiles_filt_dge.up <- peng_barbar.dge_overlap_gprofiles_filt_dge.up %>% filter(term_name %in% peng_barbar.dge.up_curated_list) %>% mutate(query = "upregulated")
+peng_barbar.dge_overlap_gprofiles_filt_dge.up$term_name <- gsub("collagen-containing extracellular matrix", "collagen extracellular matrix", peng_barbar.dge_overlap_gprofiles_filt_dge.up$term_name) %>% gsub(" loading complex", "", .)
+paste('"',unique(peng_barbar.dge_overlap_gprofiles_filt_dge.down$term_name),'",', sep = "", collapse = '\n') %>% cat()
+peng_barbar.dge.up_curated_list <- c(
+"cytoskeleton organization",
+"synapse",
+"cell junction organization",
+"neuron development",
+"gliogenesis",
+"glial cell development",
+"cell junction",
+"plasma membrane",
+"myelination",
+"generation of neurons",
+"nervous system development")
+peng_barbar.dge_overlap_gprofiles_filt_dge.down <- peng_barbar.dge_overlap_gprofiles_filt_dge.down %>% filter(term_name %in% peng_barbar.dge.up_curated_list) %>% mutate(query = "downregulated")
+# peng_barbar.dge_overlap_gprofiles_filt_dge.down$term_name <- gsub("Deactivation of the beta-catenin transactivating complex", "Deactivation beta-catenin complex", peng_barbar.dge_overlap_gprofiles_filt_dge.down$term_name)
+peng_barbar.dge_overlap_gprofiles_filt_dge.up_down <- bind_rows(peng_barbar.dge_overlap_gprofiles_filt_dge.up, peng_barbar.dge_overlap_gprofiles_filt_dge.down) %>% 
+  mutate(query = factor(query, levels = c("upregulated", "downregulated")))
+peng_barbar.go_curated <- curated_profiles(gprofiles = peng_barbar.dge_overlap_gprofiles_filt_dge.up_down, colours = 2) + labs(subtitle = "A1 & TDP43 KO")
+peng_barbar.go_curated
+
+peng_barbar.dge_overlap_gprofiles_filt <- apply(peng_barbar.dge_overlap_gprofiles_filt,2,as.character)
+write.csv(peng_barbar.dge_overlap_gprofiles_filt, "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/peng_barbar_overlap_go_terms.csv")
+```
+
+
+### Membralin with A1 & ALS
+
+#### Scatterplot
+
+```{r}
+jiang.dge <- jiang.res %>% dplyr::select(gene_name, log2FC.mem_ko = log2FoldChange, FDR.mem_ko = padj) %>% filter(gene_name %in% gene2ens$gene_name) 
+barbar.dge <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange, FDR.A1 = padj)
+jiang_barbar.dge <- full_join(jiang.dge, barbar.dge, by = c("gene_name"))
+
+jiang_barbar.dge <- jiang_barbar.dge %>% mutate(overlap = case_when(FDR.mem_ko < 0.05 & FDR.A1 < 0.05 ~ "overlapping", # down in mem_ko
+                                                        FDR.mem_ko < 0.05 ~ "mem_ko specific",
+                                                        FDR.A1 < 0.05 ~ "A1 specific",
+                                                        TRUE ~ "None"),
+                                    overlap_direction = case_when(FDR.mem_ko < 0.05 & log2FC.mem_ko > 0 & FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "overlapping up", # down in mem_ko
+                                                                  FDR.mem_ko < 0.05 & log2FC.mem_ko < 0 & FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "overlapping down",
+                                                                  FDR.mem_ko < 0.05 & log2FC.mem_ko > 0 ~ "mem_ko specific up",
+                                                                  FDR.mem_ko < 0.05 & log2FC.mem_ko < 0 ~ "mem_ko specific down",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "A1 specific up",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "A1 specific down",
+                                                                  TRUE ~ "None"),
+                                    overlap_direction = factor(overlap_direction, levels = c("overlapping up", "overlapping down", "mem_ko specific up", "mem_ko specific down", "A1 specific up", "A1 specific down", "None")),
+                                    overlap = factor(overlap, levels = c("overlapping",  "mem_ko specific", "A1 specific", "None"))) %>%
+  arrange(overlap_direction)
+table(jiang_barbar.dge$overlap)
+table(jiang_barbar.dge$overlap_direction)
+jiang_barbar.dge
+
+cor.test(x = jiang_barbar.dge$log2FC.mem_ko, y = jiang_barbar.dge$log2FC.A1)
+t.test( x = jiang_barbar.dge$log2FC.mem_ko, y = jiang_barbar.dge$log2FC.A1, paired = TRUE )
+
+A1_mem_ko_scatter <- ggscatter(jiang_barbar.dge, x = "log2FC.mem_ko", y = "log2FC.A1", color = "overlap_direction", palette = c("firebrick2", "dodgerblue3", "grey", "grey", "grey", "grey", "grey"), cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~membralin~KO:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5, cor.coef.size = 3) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   xlim(-5,5) + ylim(-10,11) +
+    geom_smooth(data = jiang_barbar.dge, aes(x = log2FC.mem_ko, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(jiang_barbar.dge, overlap_direction %in%  c("overlapping up", "overlapping down"), gene_name %in% all.reactivity.go, log2FC.A1 < 9.5), aes(x = log2FC.mem_ko, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 25) +  
+  annotate(geom="text", x=3, y=11, label="mem-KO & A1 Up", color="firebrick2", size = 3.2)  + annotate(geom="text", x=-3, y=-10, label="mem-KO & A1 Down", color="dodgerblue3", size = 3.2)  + labs(subtitle = "membralin-KO vs A1")
+A1_mem_ko_scatter
+```
+
+#### Venn
+
+```{r}
+# Upregulated DEG
+venn_jiang_barbar.up <- as.ggplot(
+  ~draw.pairwise.venn(
+    area1 = nrow( filter(jiang_barbar.dge, overlap_direction %in% c("mem_ko specific up","overlapping up")) ),
+    area2 = nrow( filter(jiang_barbar.dge, overlap_direction %in% c("A1 specific up","overlapping up")) ),
+    cross.area = nrow(filter(jiang_barbar.dge, overlap_direction %in% "overlapping up")),
+    category = c("mem-KO", "A1"),  fill = c("dodgerblue2", "firebrick2"),
+    alpha = 0.5, cat.fontfamily = "sans", cat.pos = c(0,0), cat.dist =rep(0.04, 2), scaled = FALSE)) +
+  labs(subtitle = "Overlap Up") + theme(plot.subtitle = element_text(hjust = 0.5, colour = "firebrick2"))
+venn_jiang_barbar.up
+
+# Downregulated DEG
+venn_jiang_barbar.down <- as.ggplot(
+  ~draw.pairwise.venn(
+    area1 = nrow( filter(jiang_barbar.dge, overlap_direction %in% c("mem_ko specific down", "overlapping down")) ),
+    area2 = nrow( filter(jiang_barbar.dge, overlap_direction %in% c("A1 specific down", "overlapping down")) ),
+    cross.area = nrow(filter(jiang_barbar.dge, overlap_direction == "overlapping down")),
+    category = c("mem-KO", "A1"),  fill = c("dodgerblue2", "firebrick2"),
+    alpha = 0.5, cat.fontfamily = "sans", cat.pos = c(0,0), cat.dist =rep(0.04, 2), scaled = FALSE)) +
+  labs(subtitle = "Overlap Down") + theme(plot.subtitle = element_text(hjust = 0.5, colour = "dodgerblue2"))
+venn_jiang_barbar.up
+
+jiang.A1_venn <- ggarrange(venn_jiang_barbar.up, venn_jiang_barbar.down, nrow = 2)
+jiang.A1_venn
+
+
+
+mem_ko_A1_up.go.obj <- newGeneOverlap(barbar.res.dge.up,
+                         jiang.res.dge.up,
+                         genome.size=nrow(distinct(gene2ens, gene_name)))
+testGeneOverlap(mem_ko_A1_up.go.obj)
+# GeneOverlap object:
+# listA size=4686
+# listB size=844
+# Intersection size=261
+# Overlapping p-value=5.1e-88
+
+mem_ko_A1_down.go.obj <- newGeneOverlap(barbar.res.dge.down,
+                         jiang.res.dge.down,
+                         genome.size=nrow(distinct(gene2ens, gene_name)))
+testGeneOverlap(mem_ko_A1_down.go.obj)
+# GeneOverlap object:
+# listA size=4461
+# listB size=896
+# Intersection size=276
+# Overlapping p-value=1.2e-97
+# Jaccard Index=0.1
+
+# Define ALS & A1 genes:
+patani_birger_tyzack_barbar.dge.up <- patani_birger_tyzack_barbar.dge %>% filter((FDR.VCP < 0.05 & log2FC.VCP > 0) | (FDR.SOD1 < 0.05 & log2FC.SOD1 > 0)  | (FDR.C9orf72 < 0.05 & log2FC.C9orf72 > 0) & (FDR.A1 < 0.05 & log2FC.A1 > 0)) %>% pull(gene_name) %>% unique 
+patani_birger_tyzack_barbar.dge.down <- patani_birger_tyzack_barbar.dge %>% filter((FDR.VCP < 0.05 & log2FC.VCP < 0) | (FDR.SOD1 < 0.05 & log2FC.SOD1 < 0)  | (FDR.C9orf72 < 0.05 & log2FC.C9orf72 < 0) & (FDR.A1 < 0.05 & log2FC.A1 < 0) ) %>% pull(gene_name) %>% unique 
+jiang.res.dge.up <- jiang.res %>% filter(padj < 0.05, log2FoldChange > 0) %>% filter(gene_name %in% gene2ens$gene_name) %>% pull(gene_name) %>% unique 
+jiang.res.dge.down <- jiang.res %>% filter(padj < 0.05, log2FoldChange < 0) %>% filter(gene_name %in% gene2ens$gene_name) %>% pull(gene_name) %>% unique 
+
+jiang.ALS.up_genes <- list("TRAP" = jiang.res.dge.up, "ALS" = patani_birger_tyzack_barbar.dge.up)
+jiang.ALS.down_genes <- list("TRAP" = jiang.res.dge.down, "ALS" = patani_birger_tyzack_barbar.dge.down)
+jiang.ALS_venn_up <- ggvenn(jiang.ALS.up_genes, fill_color = c("dodgerblue3", "firebrick2"),show_percentage = FALSE, stroke_size = 0.5, set_name_size = 3, text_size = 2.8) + labs(subtitle = "Overlap Up") + theme(plot.subtitle = element_text(hjust = 0.5, size = 10, colour = "firebrick2"))
+jiang.ALS_venn_up
+jiang.ALS_venn_down <- ggvenn(jiang.ALS.down_genes, fill_color = c("dodgerblue3", "firebrick2"),show_percentage = FALSE, stroke_size = 0.5, set_name_size = 3, text_size = 2.8) + labs(subtitle = "Overlap Down") + theme(plot.subtitle = element_text(hjust = 0.5, size = 10, colour = "firebrick2"))
+jiang.ALS_venn_down
+
+mem_ko_ALS_up.go.obj <- newGeneOverlap(patani_birger_tyzack_barbar.dge.up,
+                         jiang.res.dge.up,
+                         genome.size=nrow(distinct(gene2ens, gene_name)))
+testGeneOverlap(mem_ko_ALS_up.go.obj)
+# GeneOverlap object:
+# listA size=1541
+# listB size=844
+# Intersection size=155
+# Overlapping p-value=6.3e-85
+# Jaccard Index=0.1
+
+mem_ko_ALS_down.go.obj <- newGeneOverlap(patani_birger_tyzack_barbar.dge.down,
+                         jiang.res.dge.down,
+                         genome.size=nrow(distinct(gene2ens, gene_name)))
+testGeneOverlap(mem_ko_ALS_down.go.obj)
+# GeneOverlap object:
+# listA size=2159
+# listB size=896
+# Intersection size=255
+# Overlapping p-value=1e-154
+# Jaccard Index=0.1
+```
+
+
+#### GO overlap
+
+```{r}
+# membralin KO
+jiang_barbar.dge_overlap_genes <- jiang_barbar.dge %>% filter(overlap_direction == "overlapping up" | overlap_direction == "overlapping down" ) %>% split(.$overlap_direction) %>%  map("gene_name")
+jiang_barbar.dge_overlap_genes <- gost(jiang_barbar.dge_overlap_genes) # run gprofiler2 on all groups - runs on all KEGG, GO, REAC,TF, WP pathways simultaneously
+jiang_barbar.dge_overlap_gprofiles_filt <- jiang_barbar.dge_overlap_genes$result %>% filter(str_detect(source, "KEGG|GO:BP|GO:MF|GO:CC|REAC|CORUM")) %>% arrange( -log10(p_value) ) %>% mutate( term_name = as.factor(term_name)) 
+jiang_barbar.dge_overlap_gprofiles_filt
+jiang_barbar.dge_overlap_gprofiles_filt_dge.up <- jiang_barbar.dge_overlap_gprofiles_filt %>% filter(query == "overlapping up")
+jiang_barbar.dge_overlap_gprofiles_filt_dge.down <- jiang_barbar.dge_overlap_gprofiles_filt %>% filter(query == "overlapping down")
+paste('"',unique(jiang_barbar.dge_overlap_gprofiles_filt_dge.up$term_name),'",', sep = "", collapse = '\n') %>% cat()
+jiang_barbar.dge.up_curated_list <- c("collagen-containing extracellular matrix",
+"inflammatory response",
+"cell communication",
+"signaling",
+"cell activation",
+"response to virus",
+"response to cytokine",
+"response to stress",
+"Interferon Signaling",
+"immune response")
+jiang_barbar.dge_overlap_gprofiles_filt_dge.up <- jiang_barbar.dge_overlap_gprofiles_filt_dge.up %>% filter(term_name %in% jiang_barbar.dge.up_curated_list) %>% mutate(query = "upregulated")
+jiang_barbar.dge_overlap_gprofiles_filt_dge.up$term_name <- gsub("collagen-containing extracellular matrix", "collagen extracellular matrix", jiang_barbar.dge_overlap_gprofiles_filt_dge.up$term_name)
+paste('"',unique(jiang_barbar.dge_overlap_gprofiles_filt_dge.down$term_name),'",', sep = "", collapse = '\n') %>% cat()
+jiang_barbar.dge.up_curated_list <- c(
+"glutamatergic synapse",
+"cytoskeleton organization",
+"synaptic signaling",
+"neurogenesis",
+"neuron development",
+"neuron differentiation",
+"nervous system development",
+"plasma membrane region",
+"cell junction",
+"neuron projection",
+"synapse")
+jiang_barbar.dge_overlap_gprofiles_filt_dge.down <- jiang_barbar.dge_overlap_gprofiles_filt_dge.down %>% filter(term_name %in% jiang_barbar.dge.up_curated_list) %>% mutate(query = "downregulated")
+jiang_barbar.dge_overlap_gprofiles_filt_dge.up_down <- bind_rows(jiang_barbar.dge_overlap_gprofiles_filt_dge.up, jiang_barbar.dge_overlap_gprofiles_filt_dge.down) %>% 
+  mutate(query = factor(query, levels = c("upregulated", "downregulated")))
+jiang_barbar.go_curated <- curated_profiles(gprofiles = jiang_barbar.dge_overlap_gprofiles_filt_dge.up_down, colours = 2) + labs(subtitle = "A1 & membralin KO")
+jiang_barbar.go_curated
+
+jiang_barbar.dge_overlap_gprofiles_filt <- apply(jiang_barbar.dge_overlap_gprofiles_filt,2,as.character)
+write.csv(jiang_barbar.dge_overlap_gprofiles_filt, "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/jiang_barbar_overlap_go_terms.csv")
+```
+
+
+### Merge
+
+```{r}
+fig4.merged <- ggarrange(
+  ggarrange(A1_SOD1_TRAP_scatter, cleveland.A1_venn, cleveland_barbar.go_curated, ncol = 3, labels = c("B", "C", "D"), widths = c(1.2,0.6,1)), 
+  ggarrange(A1_TDP43_KO_scatter, peng.A1_venn, peng_barbar.go_curated, ncol = 3, labels = c("E", "F", "G"), widths = c(1.1,0.6,1)), 
+  ggarrange(A1_mem_ko_scatter, jiang.A1_venn, jiang_barbar.go_curated, ncol = 3, labels = c("H", "I", "J"), widths = c(1.1,0.6,1)), 
+  nrow = 3, heights = c(1,1,1,1))
+fig4.merged
+ggsave(fig4.merged, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/fig4.merged.png", height = 11, width = 10)
+```
+
+
+## Fig S4 Mouse models GSEA & PROGENy
+
+#### GSEA glut/phag
+
+```{r}
+# Glutamate uptake GSEA:
+barbar.res_glutamate_uptake <- filter(barbar.res, gene_name %in% glutamate.uptake.go) %>% mutate(dataset = "A1")
+cleveland.res_glutamate_uptake <- filter(cleveland.res, gene_name %in% glutamate.uptake.go) %>% mutate(dataset = "SOD1-TRAP")
+peng.res_glutamate_uptake <- filter(peng.res, gene_name %in% glutamate.uptake.go) %>% mutate(dataset = "TDP43-KO")
+jiang.res_glutamate_uptake <- filter(jiang.res, gene_name %in% glutamate.uptake.go) %>% mutate(dataset = "mem-KO")
+barbar.cleveland.peng.jiang.res_glutamate_uptake <- bind_rows(barbar.res_glutamate_uptake, cleveland.res_glutamate_uptake, peng.res_glutamate_uptake, jiang.res_glutamate_uptake)# %>% mutate(dataset = factor(dataset, levels = c("A1 vs A0", "SOD1-TRAP vs A0","A1 vs A0","A1 vs A0", )))
+barbar.cleveland.peng.jiang.glutamate_uptake.sina_plot <- sinaplot.one.sample(data =  barbar.cleveland.peng.jiang.res_glutamate_uptake, group = "dataset", continuous = "log2FoldChange", labels = "gene_name", colours = 4,  label_number = 0, stat.y.position = 2, width = 0.1, flip = "no", stats.test = "t-test") + ylab(label = expression( log[2]~Fold~Change )) + xlab("")  + theme(axis.text=element_text(size=8)) + 
+  geom_segment(aes(x = 4.5, xend = 4.5, y= 0.1, yend= 2), arrow=arrow(length=unit(0.2,"cm")), color = "black") +  geom_segment(aes(x = 4.5, xend = 4.5, y= -0.1, yend= -2),arrow=arrow(length=unit(0.2,"cm")), color = "black") +
+  annotate("text", x = 4.35, y = 1, label = "Glut Uptake Up", colour = "black", size = 2.9, angle = 90) +  annotate("text", x =4.35, y = -1, label = "Glut Uptake Down", colour = "black", size = 2.9, angle = 90) + ylim(c(-2,2))  + labs(subtitle = "GSEA Glutamate Uptake")
+barbar.cleveland.peng.jiang.glutamate_uptake.sina_plot
+
+# Phagocytosis GSEA
+barbar.res_phagocytosis <- filter(barbar.res, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>% mutate(dataset = "A1")
+cleveland.res_phagocytosis <- filter(cleveland.res, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>% mutate(dataset = "SOD1-TRAP")
+peng.res_phagocytosis <- filter(peng.res, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>% mutate(dataset = "TDP43-KO")
+jiang.res_phagocytosis <- filter(jiang.res, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>% mutate(dataset = "mem-KO")
+barbar.cleveland.peng.jiang.res_phagocytosis <- bind_rows(barbar.res_phagocytosis, cleveland.res_phagocytosis, peng.res_phagocytosis, jiang.res_phagocytosis)# %>% mutate(dataset = factor(dataset, levels = c("A1 vs A0", "SOD1-TRAP vs A0","A1 vs A0","A1 vs A0", )))
+barbar.cleveland.peng.jiang.phagocytosis.sina_plot <- sinaplot.one.sample(data =  barbar.cleveland.peng.jiang.res_phagocytosis, group = "dataset", continuous = "log2FoldChange", labels = "gene_name", colours = 4,  label_number = 0, stat.y.position = 2, width = 0.1, flip = "no", stats.test = "t-test") + ylab(label = expression( log[2]~Fold~Change )) + xlab("")  + theme(axis.text=element_text(size=8)) + 
+  geom_segment(aes(x = 4.5, xend = 4.5, y= 0.1, yend= 2), arrow=arrow(length=unit(0.2,"cm")), color = "black") +  geom_segment(aes(x = 4.5, xend = 4.5, y= -0.1, yend= -2),arrow=arrow(length=unit(0.2,"cm")), color = "black") +
+  annotate("text", x = 4.35, y = 1, label = "Phagocytosis Up", colour = "black", size = 2.9, angle = 90) +  annotate("text", x =4.35, y = -1, label = "Phagocytosis Down", colour = "black", size = 2.9, angle = 90) + ylim(c(-2,2))  + labs(subtitle = "GSEA Phagocytosis")
+barbar.cleveland.peng.jiang.phagocytosis.sina_plot
+```
+
+Cleveland GSEA
+
+```{r}
+# GSEA violin plots: Phagocytosis, Glutamate uptke
+cleveland.res_phagocytosis <-filter(cleveland.res, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>%  mutate(gene_set = "phagocytosis")
+cleveland.res_glutamate_uptake <- filter(cleveland.res, gene_name %in% go.pathways.msigdb$GO_GLUTAMATERGIC_SYNAPSE) %>% mutate(gene_set = "glutamate uptake")
+cleveland.res_gene_sets <- bind_rows(cleveland.res_phagocytosis, cleveland.res_glutamate_uptake) 
+
+cleveland.gene_sets_sina_plot <- sinaplot.one.sample(data =  cleveland.res_gene_sets, group = "gene_set", continuous = "log2FoldChange", labels = "gene_name", colours = 2,  label_number = 0, stat.y.position = 2, width = 0.1, flip = "no", stats.test = "t-test") + ylab(label = expression( log[2]~Fold~Change~SOD1~TRAP:CTRL )) + xlab("")  +  theme(axis.text=element_text(size=9)) +
+  geom_segment(aes(x = 2.5, xend = 2.5, y= 0.1, yend= 2), arrow=arrow(length=unit(0.2,"cm")), color = "black") +  geom_segment(aes(x = 2.5, xend = 2.5, y= -0.1, yend= -2),arrow=arrow(length=unit(0.2,"cm")), color = "black") +
+  annotate("text", x = 2.35, y = 1, label = "SOD1 TRAP Up", colour = "black", size = 2.9, angle = 90) +  annotate("text", x =2.35, y = -1, label = "SOD1 TRAP Down", colour = "black", size = 2.9, angle = 90) + ylim(c(-2,2))  + labs(subtitle = "GSEA SOD1-TRAP")
+cleveland.gene_sets_sina_plot
+# group            .y.   group1 group2         n statistic          p p.signif y.position
+# * <chr>            <chr> <chr>  <chr>      <int>     <dbl>      <dbl> <chr>         <dbl>
+# 1 glutamate uptake lfc   1      null model   399     43945 0.0793     ns                2
+# 2 phagocytosis     lfc   1      null model   267     22136 0.00000162 ****              2
+
+# GSEA phagocytosis
+cleveland.geneList <- cleveland.res %>% drop_na(log2FoldChange) %>% pull(log2FoldChange)
+names(cleveland.geneList) <- cleveland.res %>% drop_na(log2FoldChange) %>% pull(gene_name) %>% as.character()
+cleveland.geneList = sort(cleveland.geneList, decreasing = TRUE)
+cleveland.phagocytosis_genes.list <- list("phagocytosis" = cleveland.res$gene_name[cleveland.res$gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS])
+cleveland.phagocytosis_fgseaRes <- fgsea(pathways = cleveland.phagocytosis_genes.list, stats = cleveland.geneList)
+cleveland.phagocytosis_fgseaRes
+#         pathway         pval         padj   log2err        ES      NES size
+# 1: phagocytosis 3.458555e-07 3.458555e-07 0.6749629 0.4797785 1.846946  256
+
+# GSEA glutamate uptake
+cleveland.glutamate.uptake_genes.list <- list("glutamate.uptake" = cleveland.res$gene_name[cleveland.res$gene_name %in% glutamate.uptake.go])
+cleveland.glutamate.uptake_fgseaRes <- fgsea(pathways = cleveland.glutamate.uptake_genes.list, stats = cleveland.geneList)
+cleveland.glutamate.uptake_fgseaRes
+#            pathway pval padj    log2err        ES       NES size                              leadingEdge
+# 1: glutamate.uptake    1    1 0.02779956 0.1386824 0.5631621  399 GRIN2B,GABRR1,SYNPO,FTCD,NPTX2,OPHN1,...
+```
+
+Peng GSEA
+
+```{r}
+# GSEA violin plots: Phagocytosis, Glutamate uptke
+peng.res_phagocytosis <-filter(peng.res, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>%  mutate(gene_set = "phagocytosis")
+peng.res_glutamate_uptake <- filter(peng.res, gene_name %in% go.pathways.msigdb$GO_GLUTAMATERGIC_SYNAPSE) %>% mutate(gene_set = "glutamate uptake")
+peng.res_gene_sets <- bind_rows(peng.res_phagocytosis, peng.res_glutamate_uptake) 
+
+peng.gene_sets_sina_plot <- sinaplot.one.sample(data =  peng.res_gene_sets, group = "gene_set", continuous = "log2FoldChange", labels = "gene_name", colours = 2,  label_number = 0, stat.y.position = 2, width = 0.1, flip = "no", stats.test = "t-test") + ylab(label = expression( log[2]~Fold~Change~TDP43~KO:CTRL )) + xlab("")  + theme(axis.text=element_text(size=9)) + 
+  geom_segment(aes(x = 2.5, xend = 2.5, y= 0.1, yend= 2), arrow=arrow(length=unit(0.2,"cm")), color = "black") +  geom_segment(aes(x = 2.5, xend = 2.5, y= -0.1, yend= -2),arrow=arrow(length=unit(0.2,"cm")), color = "black") +
+  annotate("text", x = 2.35, y = 1, label = "TDP43 KO Up", colour = "black", size = 2.9, angle = 90) +  annotate("text", x =2.35, y = -1, label = "TDP43 KO Down", colour = "black", size = 2.9, angle = 90) + ylim(c(-2,2))  + labs(subtitle = "GSEA TDP43-KO")
+peng.gene_sets_sina_plot
+# group            .y.   group1 group2         n statistic        p p.signif y.position
+# * <chr>            <chr> <chr>  <chr>      <int>     <dbl>    <dbl> <chr>         <dbl>
+# 1 glutamate uptake lfc   1      null model   399     37153 0.305    ns                2
+# 2 phagocytosis     lfc   1      null model   267     20699 0.000121 ***               2
+
+# GSEA phagocytosis
+peng.geneList <- peng.res %>% drop_na(log2FoldChange) %>% pull(log2FoldChange)
+names(peng.geneList) <- peng.res %>% drop_na(log2FoldChange) %>% pull(gene_name) %>% as.character()
+peng.geneList = sort(peng.geneList, decreasing = TRUE)
+peng.phagocytosis_genes.list <- list("phagocytosis" = peng.res$gene_name[peng.res$gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS])
+peng.phagocytosis_fgseaRes <- fgsea(pathways = peng.phagocytosis_genes.list, stats = peng.geneList)
+peng.phagocytosis_fgseaRes
+#         pathway    pval    padj   log2err        ES     NES size                             leadingEdge
+# 1: phagocytosis 0.26703 0.26703 0.1388051 0.2949358 1.05324  254 ALOX15,IGHV1-18,TNF,CD3G,TULP1,XKR9,...
+
+# GSEA glutamate uptake
+peng.glutamate.uptake_genes.list <- list("glutamate.uptake" = peng.res$gene_name[peng.res$gene_name %in% glutamate.uptake.go])
+peng.glutamate.uptake_fgseaRes <- fgsea(pathways = peng.glutamate.uptake_genes.list, stats = peng.geneList)
+peng.glutamate.uptake_fgseaRes
+#             pathway pval padj    log2err        ES       NES size               leadingEdge
+# 1: glutamate.uptake    1    1 0.06407038 0.1245761 0.4590739  397 FTCD,UROC1,ACTC1,NAGS,TAT
+```
+
+Jiang GSEA 
+
+```{r}
+# GSEA violin plots: Phagocytosis, Glutamate uptke
+jiang.res_phagocytosis <-filter(jiang.res, gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS) %>%  mutate(gene_set = "phagocytosis")
+jiang.res_glutamate_uptake <- filter(jiang.res, gene_name %in% go.pathways.msigdb$GO_GLUTAMATERGIC_SYNAPSE) %>% mutate(gene_set = "glutamate uptake")
+jiang.res_gene_sets <- bind_rows(jiang.res_phagocytosis, jiang.res_glutamate_uptake) 
+
+jiang.gene_sets_sina_plot <- sinaplot.one.sample(data =  jiang.res_gene_sets, group = "gene_set", continuous = "log2FoldChange", labels = "gene_name", colours = 2,  label_number = 0, stat.y.position = 2, width = 0.1, flip = "no", stats.test = "t-test") + ylab(label = expression( log[2]~Fold~Change~mem~KO:CTRL )) + xlab("")  + theme(axis.text=element_text(size=9)) +
+  geom_segment(aes(x = 2.5, xend = 2.5, y= 0.1, yend= 2), arrow=arrow(length=unit(0.2,"cm")), color = "black") +  geom_segment(aes(x = 2.5, xend = 2.5, y= -0.1, yend= -2),arrow=arrow(length=unit(0.2,"cm")), color = "black") +
+  annotate("text", x = 2.35, y = 1, label = "membralin KO Up", colour = "black", size = 2.9, angle = 90) +  annotate("text", x =2.35, y = -1, label = "membralin KO Down", colour = "black", size = 2.9, angle = 90) + ylim(c(-2,2))  + labs(subtitle = "GSEA membralin-KO")
+jiang.gene_sets_sina_plot
+#   group      .y.   group1 group2      n statistic        p p.signif y.position
+# * <chr>      <chr> <chr>  <chr>   <int>     <dbl>    <dbl> <chr>         <dbl>
+# 1 glutamate? lfc   1      null m?   399     27395  1.21e-7 ****              2
+# 2 phagocyto? lfc   1      null m?   267     20488  2.12e-6 ****              2
+
+# GSEA phagocytosis
+jiang.geneList <- jiang.res %>% drop_na(log2FoldChange) %>% pull(log2FoldChange)
+names(jiang.geneList) <- jiang.res %>% drop_na(log2FoldChange) %>% pull(gene_name) %>% as.character()
+jiang.geneList = sort(jiang.geneList, decreasing = TRUE)
+jiang.phagocytosis_genes.list <- list("phagocytosis" = jiang.res$gene_name[jiang.res$gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS])
+jiang.phagocytosis_fgseaRes <- fgsea(pathways = jiang.phagocytosis_genes.list, stats = jiang.geneList)
+jiang.phagocytosis_fgseaRes
+#         pathway         pval         padj   log2err        ES      NES size
+# 1: phagocytosis 3.370399e-05 3.370399e-05 0.5573322 0.4375708 1.662556  246
+
+# GSEA glutamate uptake
+jiang.glutamate.uptake_genes.list <- list("glutamate.uptake" = jiang.res$gene_name[jiang.res$gene_name %in% go.pathways.msigdb$GO_GLUTAMATERGIC_SYNAPSE])
+jiang.glutamate.uptake_fgseaRes <- fgsea(pathways = jiang.glutamate.uptake_genes.list, stats = jiang.geneList)
+jiang.glutamate.uptake_fgseaRes
+#             pathway pval padj    log2err        ES       NES size
+# 1: glutamate.uptake    1    1 0.06130261 -0.185918 -0.762217  397
+```
+
+
+
+#### PROGENy
+
+```{r}
+# PROGENy
+cleveland.res.matrix <- cleveland.res %>% dplyr::select(gene_name, log2FoldChange) %>%  drop_na(log2FoldChange) %>% distinct(gene_name, .keep_all = TRUE) %>% column_to_rownames(var = "gene_name") %>% as.matrix()
+cleveland.PathwayActivity_zscore <- progeny(cleveland.res.matrix, scale=TRUE, organism="Human", top = 100, perm = 10000, z_scores = TRUE) %>%  t()# enrichment analysis of each pathway activity using competitive permutation approach
+colnames(cleveland.PathwayActivity_zscore) <- "NES"
+cleveland.PathwayActivity_zscore_df <- as.data.frame(cleveland.PathwayActivity_zscore) %>% rownames_to_column(var = "Pathway") %>% dplyr::arrange(NES) %>%  dplyr::mutate(Pathway = factor(Pathway))
+peng.res.matrix <- peng.res %>% dplyr::select(gene_name, log2FoldChange) %>%  drop_na(log2FoldChange) %>% distinct(gene_name, .keep_all = TRUE) %>% column_to_rownames(var = "gene_name") %>% as.matrix()
+peng.PathwayActivity_zscore <- progeny(peng.res.matrix, scale=TRUE, organism="Human", top = 100, perm = 10000, z_scores = TRUE) %>%  t()# enrichment analysis of each pathway activity using competitive permutation approach
+colnames(peng.PathwayActivity_zscore) <- "NES"
+peng.PathwayActivity_zscore_df <- as.data.frame(peng.PathwayActivity_zscore) %>% rownames_to_column(var = "Pathway") %>% dplyr::arrange(NES) %>%  dplyr::mutate(Pathway = factor(Pathway))
+jiang.res.matrix <- jiang.res %>% dplyr::select(gene_name, log2FoldChange) %>%  drop_na(log2FoldChange) %>% distinct(gene_name, .keep_all = TRUE) %>% column_to_rownames(var = "gene_name") %>% as.matrix()
+jiang.PathwayActivity_zscore <- progeny(jiang.res.matrix, scale=TRUE, organism="Human", top = 100, perm = 10000, z_scores = TRUE) %>%  t()# enrichment analysis of each pathway activity using competitive permutation approach
+colnames(jiang.PathwayActivity_zscore) <- "NES"
+jiang.PathwayActivity_zscore_df <- as.data.frame(jiang.PathwayActivity_zscore) %>% rownames_to_column(var = "Pathway") %>% dplyr::arrange(NES) %>%  dplyr::mutate(Pathway = factor(Pathway))
+barbar.res.matrix <- barbar.res %>% dplyr::select(gene_name, log2FoldChange) %>%  drop_na(log2FoldChange) %>% distinct(gene_name, .keep_all = TRUE) %>% column_to_rownames(var = "gene_name") %>% as.matrix()
+barbar.A1.PathwayActivity_zscore <- progeny(barbar.res.matrix, scale=TRUE, organism="Human", top = 100, perm = 10000, z_scores = TRUE) %>%  t() # enrichment analysis of each pathway activity
+colnames(barbar.A1.PathwayActivity_zscore) <- "NES"
+barbar.A1.PathwayActivity_zscore_df <- as.data.frame(barbar.A1.PathwayActivity_zscore) %>% rownames_to_column(var = "Pathway") %>% dplyr::arrange(NES) %>%  dplyr::mutate(Pathway = factor(Pathway))
+
+barbar.cleveland.peng.jiang.PathwayActivity_zscore_df <- mutate(barbar.A1.PathwayActivity_zscore_df, dataset = "A1") %>% bind_rows(mutate(peng.PathwayActivity_zscore_df, dataset = "TDP43 KO")) %>% bind_rows(mutate(cleveland.PathwayActivity_zscore_df, dataset = "SOD1 TRAP"))  %>% bind_rows(mutate(jiang.PathwayActivity_zscore_df, dataset = "membralin KO"))
+barbar.cleveland.peng.jiang.PathwayActivity_zscore_df.meanNES <- barbar.cleveland.peng.jiang.PathwayActivity_zscore_df %>% filter(dataset != "A1") %>% group_by(Pathway) %>% summarise(mean_NES = mean(NES)) %>% arrange(mean_NES)
+barbar.cleveland.peng.jiang.PathwayActivity_zscore_df$Pathway <- factor(barbar.cleveland.peng.jiang.PathwayActivity_zscore_df$Pathway, levels = barbar.cleveland.peng.jiang.PathwayActivity_zscore_df.meanNES$Pathway)
+
+barbar.cleveland.peng.jiang.progeny.pathwayActivity <- ggplot(barbar.cleveland.peng.jiang.PathwayActivity_zscore_df, aes(x=Pathway, y = NES, fill = dataset)) + theme_classic() +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.8) + theme(legend.position = "right", legend.title = element_blank(), legend.spacing.x = unit(0.5, 'cm'), axis.title = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 10), axis.text.y = element_text(size = 10)) + coord_cartesian(ylim=c(-2.5,7.5)) +
+  geom_hline(yintercept = 0, linetype = 2, colour = "darkgrey") + scale_fill_manual( values = c("firebrick2", "dodgerblue2", "forestgreen", "gold2")) + xlab(expression())  + ylab(expression(Normalised~enrichment)) + labs(subtitle = "Signalling Pathway activity")
+barbar.cleveland.peng.jiang.progeny.pathwayActivity
+```
+
+### Merge
+
+```{r}
+figS2.merged <- ggarrange(
+  ggarrange(barbar.cleveland.peng.jiang.glutamate_uptake.sina_plot,barbar.cleveland.peng.jiang.phagocytosis.sina_plot, ncol = 2, labels = c("A", "B"), widths = c(1,1)), 
+  barbar.cleveland.peng.jiang.progeny.pathwayActivity, 
+  nrow = 2, heights = c(1,1), labels = c("", "C"))
+figS2.merged
+ggsave(figS2.merged, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/figS2.merged.png", height = 7, width = 7)
+```
+
+## Fig S5 Liddelow genes in mouse models
+
+### SOD1 TRAP
+
+```{r}
+cleveland.astrocyte.reactive.genes <- astrocyte.reactive.genes[astrocyte.reactive.genes %in% cleveland.res$gene_name]
+annot <- data.frame(row.names = astrocyte.reactivity.markers$gene_name, group = factor(astrocyte.reactivity.markers$group))
+cleveland_barbar.dge.liddelow.genes <- cleveland_barbar.dge  %>% filter(gene_name %in% cleveland.astrocyte.reactive.genes) %>%
+  dplyr::select(gene_name, "SOD1_TRAP" = log2FC.SOD1_TRAP, "A1 vs A0" = log2FC.A1) %>% dplyr::arrange(factor(gene_name, levels = rownames(annot)))
+cleveland_barbar.dge.liddelow.genes.mat <- make_matrix(dplyr::select(cleveland_barbar.dge.liddelow.genes,-gene_name), dplyr::pull(cleveland_barbar.dge.liddelow.genes,gene_name))
+cleveland_barbar.dge.liddelow.genes.mat <- scale(cleveland_barbar.dge.liddelow.genes.mat, center = FALSE) # make variance equal between SOD1_TRAP & A1
+breaksList = seq(-2, 2, by = 0.1) 
+cleveland.barbar.liddlelow.heatmap <- pheatmap(t(cleveland_barbar.dge.liddelow.genes.mat), cluster_rows=F, show_rownames=T, show_colnames = T, cluster_cols=F, fontsize = 7, gaps_col = c(12,21), gaps_row = 1, legend = FALSE)
+cleveland.barbar.liddlelow.heatmap
+
+# correlate liddelow genes:
+cleveland.res.liddelow <- cleveland.res %>% dplyr::select(gene_name, log2FC.SOD1_TRAP = log2FoldChange, padj.SOD1_TRAP = padj) %>%  drop_na(log2FC.SOD1_TRAP) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
+barbar.res.liddelow <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange, padj.A1 = padj) %>%  drop_na(log2FC.A1) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
+cleveland_barbar.liddelow <- full_join(cleveland.res.liddelow, barbar.res.liddelow, by = "gene_name")
+A1_SOD1_TRAP_scatter.liddelow <- ggscatter(cleveland_barbar.liddelow, x = "log2FC.SOD1_TRAP", y = "log2FC.A1", cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~SOD1~TRAP:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5, cor.coeff.args = list(label.x = 1, label.y = -5)) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   #xlim(-10,10) + ylim(-10,10) +
+    # geom_smooth(data = cleveland_barbar.liddelow, aes(x = log2FC.SOD1_TRAP, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(cleveland_barbar.liddelow, log2FC.A1 > 0.5, log2FC.SOD1_TRAP > 0.5, gene_name != "PTGS2"), aes(x = log2FC.SOD1_TRAP, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) + geom_text_repel(data = filter(cleveland_barbar.liddelow, log2FC.A1 < -0.1, log2FC.SOD1_TRAP < -0.1), aes(x = log2FC.SOD1_TRAP, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+  annotate(geom="text", x=2, y=11, label="SOD1 TRAP & A1 both Up", color="firebrick2", size = 3.2)
+A1_SOD1_TRAP_scatter.liddelow
+
+# Test overlap
+cleveland.liddelow_GEup <- cleveland_barbar.liddelow %>% filter(log2FC.SOD1_TRAP > 0) %>% pull(gene_name)
+barbar.liddelow_GEup <- cleveland_barbar.liddelow %>% filter(log2FC.A1 > 0) %>% pull(gene_name)
+go.obj <- newGeneOverlap(cleveland.liddelow_GEup,
+                         barbar.liddelow_GEup,
+                         genome.size=nrow(astrocyte.reactivity.markers))
+testGeneOverlap(go.obj)
+# GeneOverlap object:
+# listA size=35
+# listB size=31
+# Intersection size=22
+# Overlapping p-value=0.99
+# Jaccard Index=0.5
+# 71% 22 / 31
+```
+
+### TDP43 KO
+
+```{r}
+peng.astrocyte.reactive.genes <- astrocyte.reactive.genes[astrocyte.reactive.genes %in% peng.res$gene_name]
+annot <- data.frame(row.names = astrocyte.reactivity.markers$gene_name, group = factor(astrocyte.reactivity.markers$group))
+peng_barbar.dge.liddelow.genes <- peng_barbar.dge  %>% filter(gene_name %in% peng.astrocyte.reactive.genes) %>%
+  dplyr::select(gene_name, "TDP43_KO" = log2FC.TDP43_KO, "A1 vs A0" = log2FC.A1) %>% dplyr::arrange(factor(gene_name, levels = rownames(annot)))
+peng_barbar.dge.liddelow.genes.mat <- make_matrix(dplyr::select(peng_barbar.dge.liddelow.genes,-gene_name), dplyr::pull(peng_barbar.dge.liddelow.genes,gene_name))
+peng_barbar.dge.liddelow.genes.mat <- scale(peng_barbar.dge.liddelow.genes.mat, center = FALSE) # make variance equal between TDP43_KO & A1
+breaksList = seq(-2, 2, by = 0.1) 
+peng.barbar.liddlelow.heatmap <- pheatmap(t(peng_barbar.dge.liddelow.genes.mat), cluster_rows=F, show_rownames=T, show_colnames = T, cluster_cols=F, fontsize = 7, gaps_col = c(12,21), gaps_row = 1, legend = FALSE)
+peng.barbar.liddlelow.heatmap
+
+# correlate liddelow genes:
+peng.res.liddelow <- peng.res %>% dplyr::select(gene_name, log2FC.TDP43_KO = log2FoldChange, padj.TDP43_KO = padj) %>%  drop_na(log2FC.TDP43_KO) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
+barbar.res.liddelow <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange, padj.A1 = padj) %>%  drop_na(log2FC.A1) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
+peng_barbar.liddelow <- full_join(peng.res.liddelow, barbar.res.liddelow, by = "gene_name")
+A1_TDP43_KO_scatter.liddelow <- ggscatter(peng_barbar.liddelow, x = "log2FC.TDP43_KO", y = "log2FC.A1", cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~TDP43~KO:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5, cor.coeff.args = list(label.x = 0.6, label.y = -5)) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   #xlim(-10,10) + ylim(-10,10) +
+    # geom_smooth(data = peng_barbar.liddelow, aes(x = log2FC.TDP43_KO, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(peng_barbar.liddelow, log2FC.A1 > 0, log2FC.TDP43_KO > 0, gene_name != "PTGS2"), aes(x = log2FC.TDP43_KO, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) + geom_text_repel(data = filter(peng_barbar.liddelow, log2FC.A1 < -0.1, log2FC.TDP43_KO < -0.1), aes(x = log2FC.TDP43_KO, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+  annotate(geom="text", x=1, y=11, label="TDP43 KO & A1 both Up", color="firebrick2", size = 3.2)
+A1_TDP43_KO_scatter.liddelow
+
+
+# Test overlap
+peng.liddelow_GEup <- peng_barbar.liddelow %>% filter(log2FC.TDP43_KO > 0) %>% pull(gene_name)
+barbar.liddelow_GEup <- peng_barbar.liddelow %>% filter(log2FC.A1 > 0) %>% pull(gene_name)
+go.obj <- newGeneOverlap(peng.liddelow_GEup,
+                         barbar.liddelow_GEup,
+                         genome.size=nrow(astrocyte.reactivity.markers))
+testGeneOverlap(go.obj)
+# GeneOverlap object:
+# listA size=30
+# listB size=31
+# Intersection size=19
+# Overlapping p-value=0.93
+# Jaccard Index=0.5
+# 63% 19 / 30
+```
+
+### MEM KO
+
+```{r}
+jiang.astrocyte.reactive.genes <- astrocyte.reactive.genes[astrocyte.reactive.genes %in% jiang.res$gene_name]
+annot <- data.frame(row.names = astrocyte.reactivity.markers$gene_name, group = factor(astrocyte.reactivity.markers$group))
+jiang_barbar.dge.liddelow.genes <- jiang_barbar.dge  %>% filter(gene_name %in% jiang.astrocyte.reactive.genes) %>%
+  dplyr::select(gene_name, "MEM_KO" = log2FC.mem_ko, "A1 vs A0" = log2FC.A1) %>% dplyr::arrange(factor(gene_name, levels = rownames(annot)))
+jiang_barbar.dge.liddelow.genes.mat <- make_matrix(dplyr::select(jiang_barbar.dge.liddelow.genes,-gene_name), dplyr::pull(jiang_barbar.dge.liddelow.genes,gene_name))
+jiang_barbar.dge.liddelow.genes.mat <- scale(jiang_barbar.dge.liddelow.genes.mat, center = FALSE) # make variance equal between MEM_KO & A1
+breaksList = seq(-2, 2, by = 0.1) 
+jiang.barbar.liddlelow.heatmap <- pheatmap(t(jiang_barbar.dge.liddelow.genes.mat), cluster_rows=F, show_rownames=T, show_colnames = T, cluster_cols=F, fontsize = 7, gaps_col = c(12,21), gaps_row = 1)
+jiang.barbar.liddlelow.heatmap
+
+# correlate liddelow genes:
+jiang.res.liddelow <- jiang.res %>% dplyr::select(gene_name, log2FC.mem_ko = log2FoldChange, padj.MEM_KO = padj) %>%  drop_na(log2FC.mem_ko) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
+barbar.res.liddelow <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange, padj.A1 = padj) %>%  drop_na(log2FC.A1) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
+jiang_barbar.liddelow <- full_join(jiang.res.liddelow, barbar.res.liddelow, by = "gene_name")
+A1_MEM_KO_scatter.liddelow <- ggscatter(jiang_barbar.liddelow, x = "log2FC.mem_ko", y = "log2FC.A1", cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~MEM~KO:CTRL), ylab = expression(Log[2]~Fold~Change~A1:A0), size = 0.5, cor.coeff.args = list(label.x = 1, label.y = -5)) +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   xlim(-1,4.5) + #ylim(-10,10) +
+    # geom_smooth(data = jiang_barbar.liddelow, aes(x = log2FC.mem_ko, y = log2FC.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 1) + theme(legend.position = "none") +
+    geom_text_repel(data = filter(jiang_barbar.liddelow, log2FC.A1 > 0.5, log2FC.mem_ko > 0.5), aes(x = log2FC.mem_ko, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) + geom_text_repel(data = filter(jiang_barbar.liddelow, log2FC.A1 < -0.1, log2FC.mem_ko < -0.1), aes(x = log2FC.mem_ko, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+  annotate(geom="text", x=3, y=11, label="MEM KO & A1 both Up", color="firebrick2", size = 3.2)
+A1_MEM_KO_scatter.liddelow
+
+# Test overlap
+jiang.liddelow_GEup <- jiang_barbar.liddelow %>% filter(log2FC.mem_ko > 0) %>% pull(gene_name)
+barbar.liddelow_GEup <- jiang_barbar.liddelow %>% filter(log2FC.A1 > 0) %>% pull(gene_name)
+go.obj <- newGeneOverlap(jiang.liddelow_GEup,
+                         barbar.liddelow_GEup,
+                         genome.size=nrow(astrocyte.reactivity.markers))
+testGeneOverlap(go.obj)
+# GeneOverlap object:
+# listA size=37
+# listB size=31
+# Intersection size=23
+# Overlapping p-value=1
+# Jaccard Index=0.5
+# 74% 23 / 31
+```
+
+### Merge
+
+```{r}
+figS5.merged <- ggarrange(
+  ggarrange(NULL, annotate_figure(cleveland.barbar.liddlelow.heatmap[[4]],  bottom = text_grob("Pan                   A1                           A2", color = "black", hjust = 0.6, vjust = -18, x = 0.5, face = "italic", size = 8)),
+                                                A1_SOD1_TRAP_scatter.liddelow, nrow = 3, heights = c(0.04,0.3,0.8)),
+  ggarrange(NULL, annotate_figure(peng.barbar.liddlelow.heatmap[[4]],  bottom = text_grob("Pan                   A1                           A2", color = "black", hjust = 0.6, vjust = -18, x = 0.5, face = "italic", size = 8)),
+                                                A1_TDP43_KO_scatter.liddelow, nrow = 3, heights = c(0.04, 0.3,0.8)),
+  ggarrange(NULL, annotate_figure(jiang.barbar.liddlelow.heatmap[[4]],  bottom = text_grob("Pan                   A1                           A2", color = "black", hjust = 0.6, vjust = -18, x = 0.5, face = "italic", size = 8)),
+                                                A1_MEM_KO_scatter.liddelow, nrow = 3, heights = c(0.04, 0.3,0.8)),
+  nrow = 1, ncol = 3, labels = c("A", "B", "C"))
+figS5.merged
+ggsave(figS5.merged, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/figS5.merged.png", height = 6, width = 12)
+```
+
+
+## Table S5 GO terms Table
+
+```{r}
+barbar.dge <- barbar.res %>% dplyr::select(gene_name, ensID, log2FC.A1 = log2FoldChange, FDR.A1 = padj)
+
+als_datasets.dge <- als_datasets.res %>% dplyr::select(gene_name, ensID, log2FC.ALS = log2FoldChange, FDR.ALS = padj)
+als_datasets_barbar.dge <- full_join(als_datasets.dge, barbar.dge, by = c("gene_name", "ensID"))
+als_datasets_barbar.dge <- als_datasets_barbar.dge %>% mutate(overlap = case_when(FDR.ALS < 0.05 & FDR.A1 < 0.05 ~ "overlapping", # down in ALS
+                                                        FDR.ALS < 0.05 ~ "ALS specific",
+                                                        FDR.A1 < 0.05 ~ "A1 specific",
+                                                        TRUE ~ "None"),
+                                    overlap_direction = case_when(FDR.ALS < 0.05 & log2FC.ALS > 0 & FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "overlapping up", # down in ALS
+                                                                  FDR.ALS < 0.05 & log2FC.ALS < 0 & FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "overlapping down",
+                                                                  FDR.ALS < 0.05 & log2FC.ALS > 0 ~ "ALS specific up",
+                                                                  FDR.ALS < 0.05 & log2FC.ALS < 0 ~ "ALS specific down",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "A1 specific up",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "A1 specific down",
+                                                                  TRUE ~ "None"),
+                                    overlap_direction = factor(overlap_direction, levels = c("overlapping up", "overlapping down", "ALS specific up", "ALS specific down", "A1 specific up", "A1 specific down", "None")),
+                                    overlap = factor(overlap, levels = c("overlapping",  "ALS specific", "A1 specific", "None"))) %>%  arrange(overlap_direction)
+als_datasets.barbar.dge_overlap_genes <- als_datasets_barbar.dge %>% filter(overlap_direction == "overlapping up" | overlap_direction == "overlapping down" ) %>% split(.$overlap_direction) %>%  map("ensID") %>% gost()
+als_datasets.barbar.dge_all_go_terms <- filter(als_datasets.barbar.dge_overlap_genes$result, str_detect(source, "KEGG|GO:BP|GO:MF|GO:CC|REAC|CORUM")) %>% arrange( -log10(p_value) )  %>% mutate(query = case_when(query == "overlapping up" ~ "ALS & A1 up", query == "overlapping down" ~ "ALS & A1 down"))
+
+barbar.dge <- barbar.res %>% dplyr::select(gene_name, log2FC.A1 = log2FoldChange, FDR.A1 = padj) # without ensID
+
+cleveland.dge <- cleveland.res %>% dplyr::select(gene_name, log2FC.SOD1_TRAP = log2FoldChange, FDR.SOD1_TRAP = padj) %>% filter(gene_name %in% gene2ens$gene_name) 
+cleveland_barbar.dge <- full_join(cleveland.dge, barbar.dge, by = c("gene_name"))
+cleveland_barbar.dge <- cleveland_barbar.dge %>% mutate(overlap = case_when(FDR.SOD1_TRAP < 0.05 & FDR.A1 < 0.05 ~ "overlapping", # down in SOD1_TRAP
+                                                        FDR.SOD1_TRAP < 0.05 ~ "SOD1_TRAP specific",
+                                                        FDR.A1 < 0.05 ~ "A1 specific",
+                                                        TRUE ~ "None"),
+                                    overlap_direction = case_when(FDR.SOD1_TRAP < 0.05 & log2FC.SOD1_TRAP > 0 & FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "overlapping up", # down in SOD1_TRAP
+                                                                  FDR.SOD1_TRAP < 0.05 & log2FC.SOD1_TRAP < 0 & FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "overlapping down",
+                                                                  FDR.SOD1_TRAP < 0.05 & log2FC.SOD1_TRAP > 0 ~ "SOD1_TRAP specific up",
+                                                                  FDR.SOD1_TRAP < 0.05 & log2FC.SOD1_TRAP < 0 ~ "SOD1_TRAP specific down",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "A1 specific up",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "A1 specific down",
+                                                                  TRUE ~ "None"),
+                                    overlap_direction = factor(overlap_direction, levels = c("overlapping up", "overlapping down", "SOD1_TRAP specific up", "SOD1_TRAP specific down", "A1 specific up", "A1 specific down", "None")),
+                                    overlap = factor(overlap, levels = c("overlapping",  "SOD1_TRAP specific", "A1 specific", "None"))) %>%  arrange(overlap_direction)
+cleveland_barbar.dge_overlap_genes <- cleveland_barbar.dge %>% filter(overlap_direction == "overlapping up" | overlap_direction == "overlapping down" ) %>% split(.$overlap_direction) %>%  map("gene_name") %>% gost()
+cleveland_barbar.dge_overlap_gprofiles_filt <- filter(cleveland_barbar.dge_overlap_genes$result, str_detect(source, "KEGG|GO:BP|GO:MF|GO:CC|REAC|CORUM")) %>% arrange( -log10(p_value) ) %>% mutate( term_name = as.factor(term_name), query = case_when(query == "overlapping up" ~ "SOD1 TRAP & A1 up", query == "overlapping down" ~ "SOD1 TRAP & A1 down"))
+
+peng.dge <- peng.res %>% dplyr::select(gene_name, log2FC.TDP43_KO = log2FoldChange, FDR.TDP43_KO = padj) %>% filter(gene_name %in% gene2ens$gene_name) 
+peng_barbar.dge <- full_join(peng.dge, barbar.dge, by = c("gene_name"))
+peng_barbar.dge <- peng_barbar.dge %>% mutate(overlap = case_when(FDR.TDP43_KO < 0.05 & FDR.A1 < 0.05 ~ "overlapping", # down in TDP43_KO
+                                                        FDR.TDP43_KO < 0.05 ~ "TDP43_KO specific",
+                                                        FDR.A1 < 0.05 ~ "A1 specific",
+                                                        TRUE ~ "None"),
+                                    overlap_direction = case_when(FDR.TDP43_KO < 0.05 & log2FC.TDP43_KO > 0 & FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "overlapping up", # down in TDP43_KO
+                                                                  FDR.TDP43_KO < 0.05 & log2FC.TDP43_KO < 0 & FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "overlapping down",
+                                                                  FDR.TDP43_KO < 0.05 & log2FC.TDP43_KO > 0 ~ "TDP43_KO specific up",
+                                                                  FDR.TDP43_KO < 0.05 & log2FC.TDP43_KO < 0 ~ "TDP43_KO specific down",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "A1 specific up",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "A1 specific down",
+                                                                  TRUE ~ "None"),
+                                    overlap_direction = factor(overlap_direction, levels = c("overlapping up", "overlapping down", "TDP43_KO specific up", "TDP43_KO specific down", "A1 specific up", "A1 specific down", "None")),
+                                    overlap = factor(overlap, levels = c("overlapping",  "TDP43_KO specific", "A1 specific", "None"))) %>%  arrange(overlap_direction)
+peng_barbar.dge_overlap_genes <- peng_barbar.dge %>% filter(overlap_direction == "overlapping up" | overlap_direction == "overlapping down" ) %>% split(.$overlap_direction) %>%  map("gene_name") %>% gost()
+peng_barbar.dge_overlap_gprofiles_filt <- peng_barbar.dge_overlap_genes$result %>% filter(str_detect(source, "KEGG|GO:BP|GO:MF|GO:CC|REAC|CORUM")) %>% arrange( -log10(p_value) ) %>% mutate( term_name = as.factor(term_name), query = case_when(query == "overlapping up" ~ "TDP43 KO & A1 up", query == "overlapping down" ~ "TDP43 KO & A1 down"))
+
+jiang.dge <- jiang.res %>% dplyr::select(gene_name, log2FC.mem_ko = log2FoldChange, FDR.mem_ko = padj) %>% filter(gene_name %in% gene2ens$gene_name) 
+jiang_barbar.dge <- full_join(jiang.dge, barbar.dge, by = c("gene_name"))
+jiang_barbar.dge <- jiang_barbar.dge %>% mutate(overlap = case_when(FDR.mem_ko < 0.05 & FDR.A1 < 0.05 ~ "overlapping", # down in mem_ko
+                                                        FDR.mem_ko < 0.05 ~ "mem_ko specific",
+                                                        FDR.A1 < 0.05 ~ "A1 specific",
+                                                        TRUE ~ "None"),
+                                    overlap_direction = case_when(FDR.mem_ko < 0.05 & log2FC.mem_ko > 0 & FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "overlapping up", # down in mem_ko
+                                                                  FDR.mem_ko < 0.05 & log2FC.mem_ko < 0 & FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "overlapping down",
+                                                                  FDR.mem_ko < 0.05 & log2FC.mem_ko > 0 ~ "mem_ko specific up",
+                                                                  FDR.mem_ko < 0.05 & log2FC.mem_ko < 0 ~ "mem_ko specific down",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 > 0 ~ "A1 specific up",
+                                                                  FDR.A1 < 0.05 & log2FC.A1 < 0 ~ "A1 specific down",
+                                                                  TRUE ~ "None"),
+                                    overlap_direction = factor(overlap_direction, levels = c("overlapping up", "overlapping down", "mem_ko specific up", "mem_ko specific down", "A1 specific up", "A1 specific down", "None")),
+                                    overlap = factor(overlap, levels = c("overlapping",  "mem_ko specific", "A1 specific", "None"))) %>%  arrange(overlap_direction)
+jiang_barbar.dge_overlap_genes <- jiang_barbar.dge %>% filter(overlap_direction == "overlapping up" | overlap_direction == "overlapping down" ) %>% split(.$overlap_direction) %>%  map("gene_name") %>% gost()
+jiang_barbar.dge_overlap_gprofiles_filt <- jiang_barbar.dge_overlap_genes$result %>% filter(str_detect(source, "KEGG|GO:BP|GO:MF|GO:CC|REAC|CORUM")) %>% arrange( -log10(p_value) ) %>% mutate( term_name = as.factor(term_name), query = case_when(query == "overlapping up" ~ "membralin KO & A1 up", query == "overlapping down" ~ "membralin KO & A1 down"))
+
+all_go_terms.all_datasets <- bind_rows(als_datasets.barbar.dge_all_go_terms, cleveland_barbar.dge_overlap_gprofiles_filt, peng_barbar.dge_overlap_gprofiles_filt, jiang_barbar.dge_overlap_gprofiles_filt) %>% arrange(query) %>% dplyr::select(query, term_name, p_value, everything(), -significant, -precision, -recall)
+all_go_terms.all_datasets <- apply(all_go_terms.all_datasets,2,as.character)
+write.csv(all_go_terms.all_datasets, file = "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/TableS5.all_go_terms.all_datasets.csv", row.names = FALSE)
+```
+
