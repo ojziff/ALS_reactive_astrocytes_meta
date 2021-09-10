@@ -1,0 +1,192 @@
+---
+title: "Shiny App InteractiveComplexHeatmap"
+author: "Oliver Ziff"
+date: "`r format(Sys.time(), '%d %h %Y %H:%M')`"
+output:
+  html_document:
+    fig_width: 7
+    fig_height: 6
+    toc_depth: 3
+    theme: simplex
+    dev: jpeg
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r}
+library(InteractiveComplexHeatmap)
+library(ComplexHeatmap)
+library(circlize)
+library(GetoptLong)
+library(tidyverse)
+load("/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/astrocyte_a1_als_meta.RData")
+# source("/camp/home/ziffo/home/scripts/functions/all_r_functions.R")
+
+dds = als_datasets.dds
+dds$sizeFactor = assays(dds)$normalizationFactors %>% colMeans() # sizeFactors
+res = DESeq2::results(als_datasets.dds, name = "group_als_vs_ctrl") %>% as.data.frame()
+# res = als_datasets.res %>% filter(baseMean != 0) %>% group_by(gene_name) %>% summarise(baseMean = mean(baseMean, na.rm = TRUE), log2FoldChange = mean(log2FoldChange, na.rm = TRUE), padj = mean(padj, na.rm = TRUE), pvalue = mean(pvalue, na.rm = TRUE)) %>% ungroup %>% column_to_rownames(var = "gene_name") %>% as.data.frame() 
+
+
+env = new.env()
+
+make_heatmap = function(fdr = 0.01, base_mean = 0, log2fc = 0) {
+    l = res$padj <= fdr & res$baseMean >= base_mean & 
+                        abs(res$log2FoldChange) >= log2fc; l[is.na(l)] = FALSE
+
+    if(sum(l) == 0) return(NULL)
+
+    m = counts(dds, normalized = TRUE)
+    m = m[l, ]
+
+    env$row_index = which(l)
+
+    ht = Heatmap(t(scale(t(m))), name = "z-score",
+        top_annotation = HeatmapAnnotation(
+            group = SummarizedExperiment::colData(dds)$group,
+            sizeFactor = anno_points(SummarizedExperiment::colData(dds)$sizeFactor)
+        ),
+        show_row_names = FALSE, show_column_names = FALSE, row_km = 2,
+        column_title = paste0(sum(l), " significant genes with FDR < ", fdr),
+        show_row_dend = FALSE) + 
+        Heatmap(log10(res$baseMean[l]+1), show_row_names = FALSE, width = unit(5, "mm"),
+            name = "log10(baseMean+1)", show_column_names = FALSE) +
+        Heatmap(res$log2FoldChange[l], show_row_names = FALSE, width = unit(5, "mm"),
+            name = "log2FoldChange", show_column_names = FALSE,
+            col = colorRamp2(c(-2, 0, 2), c("green", "white", "red")))
+    ht = draw(ht, merge_legend = TRUE)
+    ht
+}
+
+# make the MA-plot with some genes highlighted
+make_maplot = function(res, highlight = NULL) {
+    col = rep("#00000020", nrow(res))
+    cex = rep(0.5, nrow(res))
+    names(col) = rownames(res)
+    names(cex) = rownames(res)
+    if(!is.null(highlight)) {
+        col[highlight] = "red"
+        cex[highlight] = 1
+    }
+    x = res$baseMean
+    y = res$log2FoldChange
+    y[y > 2] = 2
+    y[y < -2] = -2
+    col[col == "red" & y < 0] = "darkgreen"
+    par(mar = c(4, 4, 1, 1))
+
+    suppressWarnings(
+        plot(x, y, col = col, 
+            pch = ifelse(res$log2FoldChange > 2 | res$log2FoldChange < -2, 1, 16), 
+            cex = cex, log = "x",
+            xlab = "baseMean", ylab = "log2 fold change")
+    )
+}
+
+# make the volcano plot with some genes highlighted
+make_volcano = function(res, highlight = NULL) {
+    col = rep("#00000020", nrow(res))
+    cex = rep(0.5, nrow(res))
+    names(col) = rownames(res)
+    names(cex) = rownames(res)
+    if(!is.null(highlight)) {
+        col[highlight] = "red"
+        cex[highlight] = 1
+    }
+    x = res$log2FoldChange
+    y = -log10(res$padj)
+    col[col == "red" & x < 0] = "darkgreen"
+    par(mar = c(4, 4, 1, 1))
+
+    suppressWarnings(
+        plot(x, y, col = col, 
+            pch = 16, 
+            cex = cex,
+            xlab = "log2 fold change", ylab = "-log10(FDR)")
+    )
+}
+
+
+library(shiny)
+library(shinydashboard)
+body = dashboardBody(
+    fluidRow(
+      column(width = 4, 
+             box(title = "Results table", width = NULL, solidHeader = TRUE, status = "primary", DTOutput("res_table")),
+             box(title = "MA-plot", width = NULL, solidHeader = TRUE, status = "primary", plotOutput("ma_plot")),
+             box(title = "Volcano plot", width = NULL, solidHeader = TRUE, status = "primary",plotOutput("volcano_plot"))),
+        column(width = 4, box(title = "panALS vs CTRL heatmap", width = NULL, solidHeader = TRUE, status = "primary", originalHeatmapOutput("ht", height = 800, containment = TRUE))),
+        column(width = 4, id = "column2", box(title = "Sub-heatmap", width = NULL, solidHeader = TRUE, status = "primary", subHeatmapOutput("ht", title = NULL, containment = TRUE)),
+            box(title = "Output", width = NULL, solidHeader = TRUE, status = "primary", HeatmapInfoOutput("ht", title = NULL)),
+            box(title = "Note", width = NULL, solidHeader = TRUE, status = "primary",htmlOutput("note")))
+      ))
+
+
+library(DT)
+library(GetoptLong) # for qq() function
+brush_action = function(df, input, output, session) {
+    
+    row_index = unique(unlist(df$row_index))
+    selected = env$row_index[row_index]
+        
+    output[["ma_plot"]] = renderPlot({
+        make_maplot(res, selected)
+    })
+
+    output[["volcano_plot"]] = renderPlot({
+        make_volcano(res, selected)
+    })
+
+    output[["res_table"]] = renderDT(
+        formatRound(datatable(res[c("baseMean", "log2FoldChange", "padj")], rownames = TRUE), columns = 1:3, digits = 3)
+    )
+
+    output[["note"]] = renderUI({
+        if(!is.null(df)) {
+            HTML(qq("<p>Row indices captured in <b>Output</b> only correspond to the matrix of the differential genes. To get the row indices in the original matrix, you need to perform:</p>
+<pre>
+l = res$padj <= @{input$fdr} &
+    res$baseMean >= @{input$base_mean} &
+    abs(res$log2FoldChange) >= @{input$log2fc}
+l[is.na(l)] = FALSE
+which(l)[row_index]
+</pre>
+<p>where <code>res</code> is the complete data frame from DESeq2 analysis and <code>row_index</code> is the <code>row_index</code> column captured from the code in <b>Output</b>.</p>"))
+        }
+    })
+}
+
+
+ui = dashboardPage(
+    dashboardHeader(title = "pan ALS vs CTRL hiPSC astrocytes"),
+    dashboardSidebar(
+        selectInput("fdr", label = "Cutoff for FDRs:", c("0.001" = 0.001, "0.01" = 0.01, "0.05" = 0.05)),
+        numericInput("base_mean", label = "Minimal base mean:", value = 0),
+        numericInput("log2fc", label = "Minimal abs(log2 fold change):", value = 0),
+        actionButton("filter", label = "Generate heatmap")
+    ),
+    body
+)
+
+server = function(input, output, session) {
+    observeEvent(input$filter, {
+        ht = make_heatmap(fdr = as.numeric(input$fdr), base_mean = input$base_mean, log2fc = input$log2fc)
+        if(!is.null(ht)) {
+            makeInteractiveComplexHeatmap(input, output, session, ht, "ht",
+                brush_action = brush_action)
+        } else {
+            # The ID for the heatmap plot is encoded as @{heatmap_id}_heatmap, thus, it is ht_heatmap here.
+            output$ht_heatmap = renderPlot({
+                grid.newpage()
+                grid.text("No row exists after filtering.")
+            })
+        }
+    }, ignoreNULL = FALSE)
+}
+
+shinyApp(ui, server)
+
+
+
+```
