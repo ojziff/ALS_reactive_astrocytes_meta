@@ -8,6 +8,8 @@ The scripts are written in Rmarkdown documents for readability and are organised
 
 All raw and processed mRNA sequencing data generated in this study have been deposited in the NCBI Sequence Read Archive (BioProject Gene Expression Omnibus) under accession number GSE160133. Raw Mass Spectrometry data have been deposited to the ProteomeXchange Consortium via the PRIDE partner repository with the dataset identifier PXD022604. 
 
+Meta-analysis results can be browsed in the interactive web application at https://shiny.crick.ac.uk/ALS_reactive_astrocytes_meta/
+
 In total 16 public sequencing datasets were used in this study:
 | Comparison                                     | Sample Type              | Region                                      | Accession #          | Ref                     |
 |------------------------------------------------|--------------------------|---------------------------------------------|----------------------|-------------------------|
