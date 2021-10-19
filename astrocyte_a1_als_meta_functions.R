@@ -1,5 +1,6 @@
 .libPaths("/camp/lab/luscomben/home/users/ziffo/.conda/envs/r4.0.3/lib/R/library")
 library(tidyverse) # loads ggplot2, tibble, readr, tidyr, purr, dplyr, stringr, forcats
+library(usethis)
 library(devtools)
 library(DESeq2)
 library(BiocParallel)
@@ -106,6 +107,7 @@ immune.pathways.msigdb <- gmtPathways("/camp/home/ziffo/home/genomes/gene-ontolo
 RNA_BINDING_PROTEINS <- read_excel("/camp/home/ziffo/home/genomes/gene-ontology/rbp_consensus_gerstberger_2014.xls", sheet = "RBP table") %>% dplyr::pull(`gene name`)
 nucleocytoplasmic_genes_of_interest <- c(RNA_BINDING_PROTEINS, 
                                          go.pathways.msigdb$GO_NUCLEAR_PORE, go.pathways.msigdb$GO_TRANSCRIPTION_EXPORT_COMPLEX, go.pathways.msigdb$GO_NUCLEAR_TRANSCRIBED_MRNA_CATABOLIC_PROCESS_NONSENSE_MEDIATED_DECAY, go.pathways.msigdb$GO_RNA_EXPORT_FROM_NUCLEUS, go.pathways.msigdb$GO_NUCLEOCYTOPLASMIC_CARRIER_ACTIVITY, go.pathways.msigdb$GO_NEGATIVE_REGULATION_OF_NUCLEOCYTOPLASMIC_TRANSPORT)
+ALS_RBPs <- c("TARDBP", "SFPQ", "FUS", "ELAVL3", "HNRNPA1", "HNRNPA2B1", "MATR3", "ATXN2", "TAF15", "TIA1", "EWSR1")
 glia.genes <- c("S100B", "SOX9")
 astrocyte.genes <- c("GFAP","AQP4","PLA2G7","SLC39A12","MLC1","DIO2","SLC14A1","ALDH1L1","ALDOC","TTPA","ACSBG1","CHRDL1","SLC4A4","SLC1A2","SLC25A18","SLC1A3","F3","PPP1R3G","FZD2","MERTK","EZR","EVA1A","GJB6","HAPLN1","RFX4","PAPSS2","SLC15A2","PPP1R3C","TLR3","ACOT11","ATP1A2","BMPR1B","PRODH","GLI3","TMEM47","SLC9A3R1","CTH","NTSR2","SLC7A10","VCAM1","FGFR3","CCDC80","ENTPD2","CYBRD1","KCNE5","FAM20A","TNC","TLCD1","S1PR1","CBS","PBXIP1","GRIN2C","ADHFE1","AGT","GLDC","SLC7A2","GJA1","PDK4","EGFR","SOX9","CLDN10","PLCD4","ID4","FMO1","EMP2","LONRF3","HTRA1","MGST1","THRSP")
 panreactive.astrocyte.genes <- c("LCN2", "STEAP4", "S1PR3", "TIMP1", "HSPB1", "CXCL10", "CD44", "OSMR", "CP", "VIM", "GFAP",
@@ -496,6 +498,91 @@ display_venn <- function(x, ...){
 }
 
 # DESeq2 Functions ------------------
+DESeq.analysis <- function(metadata = treated.who.metadata, design = ~ stimulated, contrast = "stimulated_A1_vs_A0", species = "human", transcript.level = TRUE){
+  metadata.files <- metadata$file_salmon
+  names(metadata.files) <- metadata$sample
+  rownames(metadata) <- metadata$sample
+  if(length(contrast) == 1){
+    cat(red(paste(contrast, "result contrast specified")))
+    if(species == "human"){
+      cat(blue("\nusing human gene names\n"))
+      dds <- tximport(metadata.files, type="salmon", tx2gene=tx2gene) %>% DESeqDataSetFromTximport(colData = metadata, design = design) %>% DESeq()
+      print(resultsNames(dds))
+      vsd <- vst(dds, blind=FALSE)
+      vsd.counts <- as_tibble(assay(vsd), rownames = "gene_id")  %>% left_join(gene2ens)
+      res <- DESeq2::results(dds, name = contrast) %>% as_tibble(rownames = "gene_id") %>% left_join(gene2ens) %>% arrange(pvalue) 
+      if(transcript.level == TRUE){
+        cat(blue("transcript level analysis\n"))
+        dds.tx <- tximport(metadata.files, type="salmon", txOut = TRUE) %>% DESeqDataSetFromTximport(colData = metadata, design = design) %>% DESeq()
+        res.tx <- DESeq2::results(dds.tx, name = contrast) %>% as_tibble(rownames = "transcript_id") %>% left_join(tx2gene, by="transcript_id") %>% arrange(pvalue)
+        }
+      } else if(species == "mouse"){
+      cat(blue("\nusing mouse gene names\n"))
+      dds <- tximport(metadata.files, type="salmon", tx2gene=mus.musculus.tx2gene) %>% DESeqDataSetFromTximport(colData = metadata, design = design) %>% DESeq()
+      print(resultsNames(dds))
+      vsd <- vst(dds, blind=FALSE)
+      vsd.counts <- as_tibble(assay(vsd), rownames = "gene_id")  %>% left_join(mus.musculus.gene2ens)
+      res <- DESeq2::results(dds, name = contrast) %>% as_tibble(rownames = "gene_id") %>% left_join(mus.musculus.gene2ens) %>% mutate(gene_name.mouse = gene_name, gene_name = toupper(gene_name)) %>% arrange(pvalue)
+      if(transcript.level == TRUE){
+        cat(blue("transcript level analysis\n"))
+        dds.tx <- tximport(metadata.files, type="salmon", txOut = TRUE) %>% DESeqDataSetFromTximport(colData = metadata, design = design) %>% DESeq()
+        res.tx <- DESeq2::results(dds.tx, name = contrast) %>% as_tibble(rownames = "transcript_id") %>% left_join(mus.musculus.tx2gene, by="transcript_id") %>% mutate(gene_name.mouse = gene_name, gene_name = toupper(gene_name)) %>% arrange(pvalue)
+        }
+      }
+    cat(blue(paste("Significant events: padj < 0.05 = ", nrow(filter(res, padj < 0.05)), ", pvalue < 0.05 = ", nrow(filter(res, pvalue < 0.05)))))
+  } else if(length(contrast) > 1){
+    cat(green(paste(length(contrast), "contrasts specified")))
+    if(species == "human"){
+      cat(blue("\nusing human gene names\n"))
+      dds <- tximport(metadata.files, type="salmon", tx2gene=tx2gene) %>% DESeqDataSetFromTximport(colData = metadata, design = design) %>% DESeq()
+      print(resultsNames(dds))
+      res <- list()
+      for(i in seq_along(contrast)) {
+        res[[i]] <- DESeq2::results(dds, name = contrast[[i]]) %>% as_tibble(rownames = "gene_id") %>% left_join(gene2ens) %>% arrange(pvalue) 
+        names(res)[i] <- contrast[[i]]
+      }
+      vsd <- vst(dds, blind=FALSE)
+      vsd.counts <- as_tibble(assay(vsd), rownames = "gene_id")  %>% left_join(gene2ens)
+      if(transcript.level == TRUE){
+        cat(blue("\ntranscript level analysis\n"))
+        dds.tx <- tximport(metadata.files, type="salmon", txOut = TRUE) %>% DESeqDataSetFromTximport(colData = metadata, design = design) %>% DESeq()
+        res.tx <- list()
+        for(i in seq_along(contrast)) {
+          res.tx[[i]] <- DESeq2::results(dds.tx, name = contrast[[i]]) %>% as_tibble(rownames = "transcript_id") %>% left_join(tx2gene, by="transcript_id") %>% arrange(pvalue) 
+          names(res.tx)[i] <- contrast[[i]]
+        }
+      }
+      } else if(species == "mouse") {
+        cat(blue("\nusing mouse gene names\n"))
+        dds <- tximport(metadata.files, type="salmon", tx2gene=mus.musculus.tx2gene) %>% DESeqDataSetFromTximport(colData = metadata, design = design) %>% DESeq()
+        print(resultsNames(dds))
+        res <- list()
+        for(i in seq_along(contrast)) {
+          res[[i]] <- DESeq2::results(dds, name = contrast[[i]]) %>% as_tibble(rownames = "gene_id") %>% left_join(mus.musculus.gene2ens) %>% mutate(gene_name.mouse = gene_name, gene_name = toupper(gene_name)) %>% arrange(pvalue)
+          names(res)[i] <- contrast[[i]]
+        }
+        vsd <- vst(dds, blind=FALSE)
+        vsd.counts <- as_tibble(assay(vsd), rownames = "gene_id")  %>% left_join(mus.musculus.gene2ens)
+        if(transcript.level == TRUE){
+          cat(blue("\ntranscript level analysis\n"))
+          dds.tx <- tximport(metadata.files, type="salmon", txOut = TRUE) %>% DESeqDataSetFromTximport(colData = metadata, design = design) %>% DESeq()
+          res.tx <- list()
+          for(i in seq_along(contrast)) {
+            res.tx[[i]] <- DESeq2::results(dds.tx, name = contrast[[i]]) %>% as_tibble(rownames = "transcript_id") %>% left_join(mus.musculus.tx2gene, by="transcript_id") %>% mutate(gene_name.mouse = gene_name, gene_name = toupper(gene_name)) %>% arrange(pvalue)
+            names(res.tx)[i] <- contrast[[i]]
+          }
+        }
+      }
+  }
+  if(transcript.level == TRUE){
+    return(list(dds=dds,vsd=vsd,vsd.counts=vsd.counts,res=res,res.tx=res.tx))
+    } else {
+      return(list(dds=dds,vsd=vsd,vsd.counts=vsd.counts,res=res))
+    }
+  }
+
+
+
 curated_profiles <- 
   function(gprofiles = IRevents_gprofiles_curated, colours = 4, cols =  c("firebrick2", "dodgerblue2", "forestgreen", "gold2")){
     gprofiles <- gprofiles %>% distinct(term_name, .keep_all = TRUE) %>%  arrange( -log10(p_value) ) %>%  mutate(term_name = factor(term_name, levels = term_name)) #%>%
@@ -606,9 +693,93 @@ volcano_plot_deseq.pvalue <-
 
 
 # IR Functions ----------------------
+IRFinder.analysis <- function(metadata = treated.who.metadata, sample.names = "sample", variable.name = "stimulated", ctrl = NULL, mut = NULL, batch = "NA", file.var = "Sample limsid", ge.res = treated.who.a1_vs_a0$res, animal = "human", 
+                              design = ~ Condition + Condition:IRFinder, contrast = NULL,
+                              irfinder.dir = "/camp/lab/luscomben/home/shared/projects/patani-collab/astrocyte-stimulated-bulk-rnaseq/splicing/irfinder"){
+  if(length(variable.name) == 1){
+  if(batch == "NA"){
+    experiment = metadata %>% select(SampleNames = sample.names, Condition = variable.name, file.name = file.var) %>% 
+      mutate(Condition = factor(Condition,levels=c(ctrl, mut)), file_paths.dir = file.path(irfinder.dir,file.name,"IRFinder-IR-dir.txt"), file_paths.nondir = file.path(irfinder.dir,file.name,"IRFinder-IR-nondir.txt"))
+    if(FALSE %in% file.exists(experiment$file_paths.dir) == FALSE){
+      cat(blue("Importing stranded IRFinder output: IRFinder-IR-dir.txt"))
+      metaList = DESeqDataSetFromIRFinder(filePaths=experiment$file_paths.dir, designMatrix=experiment, designFormula = design)
+    }else{
+      cat(blue("Importing non-stranded IRFinder output: IRFinder-IR-nondir.txt"))
+      metaList = DESeqDataSetFromIRFinder(filePaths=experiment$file_paths.nondir, designMatrix=experiment, designFormula = design)
+    }
+  } else{
+    experiment = metadata %>% select(SampleNames = sample.names, Condition = variable.name, file.name = file.var, Batch = batch) %>% 
+      mutate(Condition = factor(Condition,levels=c(ctrl, mut)), file_paths.dir = file.path(irfinder.dir,file.name,"IRFinder-IR-dir.txt"), file_paths.nondir = file.path(irfinder.dir,file.name,"IRFinder-IR-nondir.txt"))
+    cat(blue(paste0("Accounting for batch: ", batch)))
+    if(FALSE %in% file.exists(experiment$file_paths.dir) == FALSE){
+      cat(blue("Importing stranded IRFinder output: IRFinder-IR-dir.txt"))
+      metaList = DESeqDataSetFromIRFinder(filePaths=experiment$file_paths.dir, designMatrix=experiment, designFormula = ~ Batch + Condition + Condition:IRFinder)
+    }else{
+      cat(blue("Importing non-stranded IRFinder output: IRFinder-IR-nondir.txt"))
+      metaList = DESeqDataSetFromIRFinder(filePaths=experiment$file_paths.nondir, designMatrix=experiment, designFormula = ~ Batch + Condition + Condition:IRFinder)
+    }
+  }
+  dds = DESeq(metaList$DESeq2Object)
+  res.ctrl = DESeq2::results(dds, name = paste0("Condition",ctrl,".IRFinderIR")) # tests IR reads vs spliced reads in ctrl
+  res.mut = DESeq2::results(dds, name = paste0("Condition",mut,".IRFinderIR")) # get IR ratio in the mut samples
+  res = DESeq2::results(dds, contrast=list(paste0("Condition",mut,".IRFinderIR"),  paste0("Condition",ctrl,".IRFinderIR")))
+  ir.res = cleanIRFinder(mutant_vs_ctrl = res, mutant = res.mut, ctrl = res.ctrl, species = animal)
+  } else if(length(variable.name) == 2){
+    cat(red(paste("Multi-factor design examining ", variable.name[1], "and ", variable.name[2])))
+    if(batch == "NA"){
+      experiment = metadata %>% select(SampleNames = sample.names, Condition1 = variable.name[1], Condition2 = variable.name[2], file.name = file.var) %>% 
+        mutate(Condition1 = as.factor(Condition1), Condition2 = as.factor(Condition2), # NB this is not explicit and will factor based on alphabetical order i.e. =c("cytoplasmic", "nuclear") & c("ctrl", "vcp")
+               file_paths.dir = file.path(irfinder.dir,file.name,"IRFinder-IR-dir.txt"), file_paths.nondir = file.path(irfinder.dir,file.name,"IRFinder-IR-nondir.txt"))
+      if(FALSE %in% file.exists(experiment$file_paths.dir) == FALSE){
+        cat(blue("Importing stranded IRFinder output: IRFinder-IR-dir.txt"))
+        metaList = DESeqDataSetFromIRFinder(filePaths=experiment$file_paths.dir, designMatrix=experiment, designFormula = ~ Condition1 * Condition2 * IRFinder)
+      }else{
+        cat(blue("Importing non-stranded IRFinder output: IRFinder-IR-nondir.txt"))
+        metaList = DESeqDataSetFromIRFinder(filePaths=experiment$file_paths.nondir, designMatrix=experiment, designFormula = ~ Condition1 * Condition2 * IRFinder)
+      }
+    } else{
+      experiment = metadata %>% select(SampleNames = sample.names, Condition1 = variable.name[1], Condition2 = variable.name[2], file.name = file.var, Batch = batch) %>% 
+        mutate(Condition1 = as.factor(Condition1), Condition2 = as.factor(Condition2), # NB this is not explicit and will factor based on alphabetical order i.e. =c("cytoplasmic", "nuclear") & c("ctrl", "vcp")
+               file_paths.dir = file.path(irfinder.dir,file.name,"IRFinder-IR-dir.txt"), file_paths.nondir = file.path(irfinder.dir,file.name,"IRFinder-IR-nondir.txt"))
+      cat(blue(paste0("Accounting for batch: ", batch)))
+      if(FALSE %in% file.exists(experiment$file_paths.dir) == FALSE){
+        cat(blue("Importing stranded IRFinder output: IRFinder-IR-dir.txt"))
+        metaList = DESeqDataSetFromIRFinder(filePaths=experiment$file_paths.dir, designMatrix=experiment, designFormula = ~ Batch + Condition1 * Condition2 * IRFinder)
+      }else{
+        cat(blue("Importing non-stranded IRFinder output: IRFinder-IR-nondir.txt"))
+        metaList = DESeqDataSetFromIRFinder(filePaths=experiment$file_paths.nondir, designMatrix=experiment, designFormula = ~ Batch + Condition1 * Condition2 * IRFinder)
+      }
+    }
+    dds = DESeq(metaList$DESeq2Object)
+    resultsNames(dds)
+    res = DESeq2::results(dds, name = contrast)
+    ir.res = cleanIRFinder.multidesign(IRFinder = res, species = animal)
+  }
+  ir.ge.res = summariseIRjoinGE(cleanIRFinder = ir.res, GE = ge.res)
+  return(list(irfinder=ir.res,ir.ge=ir.ge.res))
+}
+
 
 # using output from IRFinder DESeq2 GLM with replicates https://github.com/williamritchie/IRFinder/wiki/Generalized-Linear-Model-with-Replicates
-cleanIRFinder <- function(mutant_vs_ctrl = irfinder.res.ac_nuc_vcp_vs_ctrl, mutant = irfinder.res_ac_nuc.vcp, ctrl = irfinder.res_ac_nuc.ctrl, deseq_res = NULL, mass_spec = NULL, species = "Hsapiens"){
+DESeqDataSetFromIRFinder = function(filePaths,designMatrix,designFormula){
+  irfinder.tsv = filePaths %>% map(read_tsv)
+  names(irfinder.tsv) = designMatrix$SampleNames
+  irtab <- map_dfr(irfinder.tsv, bind_rows, .id = "SampleNames") %>% mutate(IntronDepth = round(IntronDepth), SpliceExact = round(SpliceExact), MaxSplice = round(pmax(SpliceLeft, SpliceRight)), irnames = paste0(Name,"/",Chr,":",Start,"-",End,":",Strand))
+  IntronDepth = irtab %>% pivot_wider(irnames, names_from = SampleNames, values_from = IntronDepth, names_glue = "intronDepth.{SampleNames}") %>% column_to_rownames("irnames")
+  SpliceExact = irtab %>% pivot_wider(irnames, names_from = SampleNames, values_from = SpliceExact, names_glue = "totalSplice.{SampleNames}") %>% column_to_rownames("irnames")
+  MaxSplice = irtab %>% pivot_wider(irnames, names_from = SampleNames, values_from = MaxSplice, names_glue = "maxSplice.{SampleNames}") %>% column_to_rownames("irnames")
+  group = bind_rows(mutate(designMatrix, IRFinder = "IR"), mutate(designMatrix, IRFinder = "Splice")) %>% mutate(IRFinder = factor(IRFinder, levels=c("Splice","IR")))
+  counts.IRFinder = bind_cols(IntronDepth,MaxSplice) %>% drop_na()
+  
+  dd = DESeqDataSetFromMatrix(countData = counts.IRFinder, colData = group, design = designFormula)
+  sizeFactors(dd)=rep(1,nrow(group))
+  final=list(dd,IntronDepth,SpliceExact,MaxSplice)
+  names(final)=c("DESeq2Object","IntronDepth","SpliceDepth","MaxSplice")
+  return(final)
+}
+
+
+cleanIRFinder <- function(mutant_vs_ctrl = irfinder.res.ac_nuc_vcp_vs_ctrl, mutant = irfinder.res_ac_nuc.vcp, ctrl = irfinder.res_ac_nuc.ctrl, deseq_res = NULL, mass_spec = NULL, species = "human"){
   irfinder.mutant <- mutant %>% as_tibble(rownames = "Intron.GeneName.GeneID.Coords") %>% 
     mutate(IR_vs_Splice.mutant = 2^.$log2FoldChange, IRratio.mutant = IR_vs_Splice.mutant/(1+IR_vs_Splice.mutant), baseMean.mutant = baseMean) %>% dplyr::select(Intron.GeneName.GeneID.Coords, IRratio.mutant, baseMean.mutant) 
   irfinder.ctrl <- ctrl %>% as_tibble(rownames = "Intron.GeneName.GeneID.Coords") %>% 
@@ -643,52 +814,77 @@ cleanIRFinder <- function(mutant_vs_ctrl = irfinder.res.ac_nuc_vcp_vs_ctrl, muta
   print(table(IRFinder$padj0.05_IRdirection))
   gr_introns <- as.GenomicRange(IRFinder$Intron.GeneName.GeneID.Coords)
   seqlevelsStyle(gr_introns) <- "UCSC"
-  if(species == "Hsapiens"){
-    print("GC content based on Hsapiens")
+  if(species == "human"){
+    print("GC content based on human")
     IRFinder$gc_content <- GCcontent(Hsapiens, gr_introns)
-  }else if(species == "Mmusculus"){
-    print("GC content based on Mmusculus")
+  }else if(species == "mouse"){
+    print("GC content based on mouse")
     IRFinder$gc_content <- GCcontent(Mmusculus, gr_introns)
-  }else if(species == "Rnorvegicus"){
-    print("GC content based on Rnorvegicus")
+  }else if(species == "rat"){
+    print("GC content based on rat")
     IRFinder$gc_content <- GCcontent(Rnorvegicus, gr_introns)
   }
-  if(species != "Hsapiens"){
+  if(species != "human"){
     IRFinder <- IRFinder %>% mutate(gene_name = toupper(gene_name))  # covert gene_names to upper case for matching to Deseq results & Human gene names
   }
   # IRFinder$phast_cons <- gscores(phast, gr_introns) # too slow to keep in function
-  if(!is.null(deseq_res)){
-    deseq_res <- deseq_res %>% rename(ge.log2FoldChange = log2FoldChange, ge.padj = padj, ge.pvalue = pvalue, ge.baseMean = baseMean) %>% dplyr::select(-lfcSE, -stat)
-    IRFinder <- IRFinder %>% left_join(deseq_res, by = c("gene_id", "gene_name")) %>% dplyr::mutate(ge.direction = case_when(ge.log2FoldChange > 0 ~ "up", TRUE ~ "down"),
-                                           direction = case_when(ge.log2FoldChange > 0 & IRratio.diff < 0 ~ "IR down & expression up",
-                                                                 ge.log2FoldChange > 0 & IRratio.diff > 0 ~ "IR up & expression up",
-                                                                 ge.log2FoldChange < 0 & IRratio.diff < 0 ~ "IR down & expression down",
-                                                                 ge.log2FoldChange < 0 & IRratio.diff > 0 ~ "IR up & expression down"))
-  }
-  if(!is.null(mass_spec)){
-    IRFinder <- IRFinder %>%  left_join(mass_spec, by = c("gene_name"="name"))
-    IRFinder <- IRFinder %>% dplyr::mutate(massspec_direction = case_when(vcp_vs_ctrl_ratio > 0 ~ "up", vcp_vs_ctrl_ratio < 0 ~ "down"),
-                                           massspec_ir_direction = case_when(vcp_vs_ctrl_ratio > 0 & IRratio.diff < 0 ~ "IR down & protein up", vcp_vs_ctrl_ratio > 0 & IRratio.diff > 0 ~ "IR up & protein up",
-                                                                             vcp_vs_ctrl_ratio < 0 & IRratio.diff < 0 ~ "IR down & protein down", vcp_vs_ctrl_ratio < 0 & IRratio.diff > 0 ~ "IR up & protein down"),
-                                           massspec_expression_ir_direction = case_when(direction == "IR down & expression up" & massspec_direction == "up" ~ "IR down & expression up & protein up",
-                                                                                        direction == "IR down & expression up" & massspec_direction == "down" ~ "IR down & expression up & protein down", 
-                                                                                        direction == "IR down & expression down" & massspec_direction == "up" ~ "IR down & expression up & protein down", 
-                                                                                        direction == "IR down & expression down" & massspec_direction == "down" ~ "IR down & expression down & protein down",
-                                                                                        direction == "IR up & expression down" & massspec_direction == "up" ~ "IR up & expression down & protein up",
-                                                                                        direction == "IR up & expression up" & massspec_direction == "up" ~ "IR up & expression up & protein up", 
-                                                                                        direction == "IR up & expression up" & massspec_direction == "down" ~ "IR up & expression up & protein down",
-                                                                                        direction == "IR up & expression down" & massspec_direction == "down" ~ "IR up & expression down & protein up",
-                                                                                        TRUE ~ "other"))
-  }
+  # if(!is.null(deseq_res)){
+  #   deseq_res <- deseq_res %>% rename(ge.log2FoldChange = log2FoldChange, ge.padj = padj, ge.pvalue = pvalue, ge.baseMean = baseMean) %>% dplyr::select(-lfcSE, -stat)
+  #   IRFinder <- IRFinder %>% left_join(deseq_res, by = c("gene_id", "gene_name")) %>% dplyr::mutate(ge.direction = case_when(ge.log2FoldChange > 0 ~ "up", TRUE ~ "down"),
+  #                                          direction = case_when(ge.log2FoldChange > 0 & IRratio.diff < 0 ~ "IR down & expression up",
+  #                                                                ge.log2FoldChange > 0 & IRratio.diff > 0 ~ "IR up & expression up",
+  #                                                                ge.log2FoldChange < 0 & IRratio.diff < 0 ~ "IR down & expression down",
+  #                                                                ge.log2FoldChange < 0 & IRratio.diff > 0 ~ "IR up & expression down"))
+  # }
+  # if(!is.null(mass_spec)){
+  #   IRFinder <- IRFinder %>%  left_join(mass_spec, by = c("gene_name"="name"))
+  #   IRFinder <- IRFinder %>% dplyr::mutate(massspec_direction = case_when(vcp_vs_ctrl_ratio > 0 ~ "up", vcp_vs_ctrl_ratio < 0 ~ "down"),
+  #                                          massspec_ir_direction = case_when(vcp_vs_ctrl_ratio > 0 & IRratio.diff < 0 ~ "IR down & protein up", vcp_vs_ctrl_ratio > 0 & IRratio.diff > 0 ~ "IR up & protein up",
+  #                                                                            vcp_vs_ctrl_ratio < 0 & IRratio.diff < 0 ~ "IR down & protein down", vcp_vs_ctrl_ratio < 0 & IRratio.diff > 0 ~ "IR up & protein down"),
+  #                                          massspec_expression_ir_direction = case_when(direction == "IR down & expression up" & massspec_direction == "up" ~ "IR down & expression up & protein up",
+  #                                                                                       direction == "IR down & expression up" & massspec_direction == "down" ~ "IR down & expression up & protein down", 
+  #                                                                                       direction == "IR down & expression down" & massspec_direction == "up" ~ "IR down & expression up & protein down", 
+  #                                                                                       direction == "IR down & expression down" & massspec_direction == "down" ~ "IR down & expression down & protein down",
+  #                                                                                       direction == "IR up & expression down" & massspec_direction == "up" ~ "IR up & expression down & protein up",
+  #                                                                                       direction == "IR up & expression up" & massspec_direction == "up" ~ "IR up & expression up & protein up", 
+  #                                                                                       direction == "IR up & expression up" & massspec_direction == "down" ~ "IR up & expression up & protein down",
+  #                                                                                       direction == "IR up & expression down" & massspec_direction == "down" ~ "IR up & expression down & protein up",
+  #                                                                                       TRUE ~ "other"))
+  # }
   return(IRFinder)
 }
 
-cleanIRFinder.multidesign <- function(IRFinder = irfinder.ac.nuc_vs_cyt.vcp_vs_ctrl, species = "Hsapiens"){
+
+# normalise IR per gene and left_join to GE results
+summariseIRjoinGE <- function(cleanIRFinder = irfinder.ac_nuc_vcp_vs_ctrl, GE = ac_cyt_vcp_vs_ctrl.res){
+  cleanIRFinder.summarised <- cleanIRFinder %>% group_by(gene_id, gene_name) %>% 
+    filter(reliable == "reliable") %>% 
+    summarise(all_intron_lengths = sum(intron_length), introns = dplyr::n(), 
+              IR.log2FoldChange.norm = sum( log2FoldChange * (intron_length / all_intron_lengths)), 
+              # IRratio.diff.norm = sum( IRratio.diff * (intron_length / all_intron_lengths)), 
+              IR.pvalue = min(pvalue, na.rm = TRUE), 
+              IR.baseMean = sum( baseMean * (intron_length / all_intron_lengths))) %>% ungroup %>% 
+    mutate(IR.direction = case_when(IR.log2FoldChange.norm > 0 ~ "IR up", IR.log2FoldChange.norm <= 0 ~ "IR down")) %>% 
+    dplyr::select(gene_id, gene_name, IR.log2FoldChange.norm, IR.pvalue, IR.baseMean, IR.direction) # , IRratio.diff.norm
+  cleanIRFinder.summarised.GE <- GE %>% left_join(cleanIRFinder.summarised, by = c("gene_id", "gene_name")) %>% 
+    mutate(GE.direction = case_when(log2FoldChange > 0 ~ "GE up", log2FoldChange < 0 ~ "GE down")) %>% 
+    rename(GE.log2FoldChange = log2FoldChange, GE.baseMean = baseMean, GE.padj = padj, GE.pvalue = pvalue) %>%
+    mutate(significant = case_when(GE.pvalue < 0.05 & IR.pvalue < 0.05 ~ "both", GE.pvalue < 0.05 ~ "GE only", IR.pvalue < 0.05 ~ "IR only", TRUE ~ "None"), 
+           direction = case_when(IR.direction == "IR up" & GE.direction == "GE down" ~ "IR up mRNA down", IR.direction == "IR up" & GE.direction == "GE up" ~ "IR up mRNA up",
+                                 IR.direction == "IR down" & GE.direction == "GE down" ~ "IR down mRNA down", IR.direction == "IR down" & GE.direction == "GE up" ~ "IR down mRNA up")) %>%
+    dplyr::select(gene_id, gene_name, GE.log2FoldChange, GE.padj, GE.pvalue, GE.baseMean, IR.log2FoldChange.norm, IR.pvalue, IR.baseMean, direction, significant, IR.direction, GE.direction) # , IRratio.diff.norm
+  print(paste("Normalising", nrow(cleanIRFinder), "IR events in", nrow(GE), "GE events"))
+  return(cleanIRFinder.summarised.GE)
+}
+
+
+
+
+cleanIRFinder.multidesign <- function(IRFinder = irfinder.ac.nuc_vs_cyt.vcp_vs_ctrl, species = "human"){
   IRFinder <- IRFinder %>% as_tibble(rownames = "Intron.GeneName.GeneID.Coords") %>%
     mutate(gene_name = str_split_fixed(.$Intron.GeneName.GeneID.Coords, "/", 4)[,1], gene_id = str_split_fixed(.$Intron.GeneName.GeneID.Coords, "/", 4)[,2], 
            IRdirection = case_when(log2FoldChange > 0 ~ "up", log2FoldChange < 0 ~ "down", TRUE ~ "unchanged"), 
            reliable = case_when(baseMean < 10 ~ "unreliable", TRUE ~ "reliable"), 
-
            p0.05 = case_when(pvalue < 0.05 ~ "significant", TRUE ~ "none_significant"), p0.05 = factor(p0.05, levels = c("significant", "none_significant")),
            p0.05_IRdirection = case_when(IRdirection == "up" & pvalue < 0.05 ~ "up", IRdirection == "down" & pvalue < 0.05 ~ "down", TRUE ~ "none_significant"),
            p0.05_reliable = case_when(pvalue < 0.05 & reliable == "reliable" ~ "significant", TRUE ~ "none_significant"),
@@ -707,44 +903,22 @@ cleanIRFinder.multidesign <- function(IRFinder = irfinder.ac.nuc_vs_cyt.vcp_vs_c
   print(table(IRFinder$padj0.05_IRdirection))
   gr_introns <- as.GenomicRange(IRFinder$Intron.GeneName.GeneID.Coords)
   seqlevelsStyle(gr_introns) <- "UCSC"
-  if(species == "Hsapiens"){
-    print("GC content based on Hsapiens")
+  if(species == "human"){
+    print("GC content based on human")
     IRFinder$gc_content <- GCcontent(Hsapiens, gr_introns)
-  }else if(species == "Mmusculus"){
-    print("GC content based on Mmusculus")
+  }else if(species == "mouse"){
+    print("GC content based on mouse")
     IRFinder$gc_content <- GCcontent(Mmusculus, gr_introns)
-  }else if(species == "Rnorvegicus"){
-    print("GC content based on Rnorvegicus")
+  }else if(species == "rat"){
+    print("GC content based on rat")
     IRFinder$gc_content <- GCcontent(Rnorvegicus, gr_introns)
   }
-  if(species != "Hsapiens"){
+  if(species != "human"){
     IRFinder <- IRFinder %>% mutate(gene_name = toupper(gene_name))  # covert gene_names to upper case for matching to Deseq results & Human gene names
   }
   # IRFinder$phast_cons <- gscores(phast, gr_introns) # too slow to keep in function
   return(IRFinder)
 }
-
-
-
-
-# normalise IR per gene and left_join to GE results
-summariseIRjoinGE <- function(cleanIRFinder = irfinder.ac_nuc_vcp_vs_ctrl, GE = ac_cyt_vcp_vs_ctrl.res){
-  cleanIRFinder.summarised <- cleanIRFinder %>% group_by(gene_id, gene_name) %>% 
-    filter(reliable == "reliable") %>% 
-    summarise(all_intron_lengths = sum(intron_length), introns = dplyr::n(), 
-              IR.log2FoldChange.norm = sum( log2FoldChange * (intron_length / all_intron_lengths)), 
-              # IRratio.diff.norm = sum( IRratio.diff * (intron_length / all_intron_lengths)), 
-              IR.pvalue = min(pvalue, na.rm = TRUE), 
-              IR.baseMean = sum( baseMean * (intron_length / all_intron_lengths))) %>% ungroup %>% 
-    mutate(IR.direction = case_when(IR.log2FoldChange.norm > 0 ~ "IR up", IR.log2FoldChange.norm <= 0 ~ "IR down")) %>% 
-    dplyr::select(gene_id, gene_name, IR.log2FoldChange.norm, IR.pvalue, IR.baseMean, IR.direction) # , IRratio.diff.norm
-  cleanIRFinder.summarised.GE <- GE %>% left_join(cleanIRFinder.summarised, by = c("gene_id", "gene_name")) %>% 
-    mutate(GE.direction = case_when(log2FoldChange > 0 ~ "GE up", log2FoldChange < 0 ~ "GE down")) %>% rename(GE.log2FoldChange = log2FoldChange, GE.baseMean = baseMean, GE.padj = padj, GE.pvalue = pvalue) %>%
-    dplyr::select(gene_id, gene_name, GE.log2FoldChange, GE.padj, GE.pvalue, GE.baseMean, IR.log2FoldChange.norm, IR.pvalue, IR.baseMean, IR.direction, GE.direction) # , IRratio.diff.norm
-  print(paste("Normalising", nrow(cleanIRFinder), "IR events in", nrow(GE), "GE events"))
-  return(cleanIRFinder.summarised.GE)
-}
-
 
 
 # using output from Small Amount of Replicates via Audic and Claverie Test https://github.com/williamritchie/IRFinder/wiki/Small-Amounts-of-Replicates-via-Audic-and-Claverie-Test
@@ -920,6 +1094,33 @@ cleanIRFinderQuantCompared <- function(mutant = ac_who_vcp.IR, control = ac_who_
   }
   return(IRFinder)
 }
+
+
+
+
+# IRFinder.analysis <- function(metadata = treated.who.metadata, sample.names = "sample", condition = "stimulated", ctrl = "A0", mut = "A1", batch = "NA", file.var = "Sample limsid", ge.res = treated.who.a1_vs_a0$res, 
+#                               irfinder.dir = "/camp/lab/luscomben/home/shared/projects/patani-collab/astrocyte-stimulated-bulk-rnaseq/splicing/irfinder"){
+#   if(batch == "NA"){
+#     experiment = metadata %>% select(SampleNames = sample.names, Condition = condition, file.name = file.var) %>% remove_rownames() %>% mutate(Condition = factor(Condition,levels=c(ctrl, mut)))
+#     file_paths = experiment %>% mutate(file_paths = case_when(file.exists(file.path(irfinder.dir,file.name,"IRFinder-IR-dir.txt")) ~ file.path(irfinder.dir,file.name,"IRFinder-IR-dir.txt"), TRUE ~ file.path(irfinder.dir,file.name,"IRFinder-IR-nondir.txt"))) %>% pull(file_paths)
+#     print("Importing stranded IRFinder output: IRFinder-IR-dir.txt or IRFinder-IR-nondir.txt")
+#       metaList = DESeqDataSetFromIRFinder(filePaths=file_paths, designMatrix=experiment, designFormula =~ Condition + Condition:IRFinder)
+#   } else{
+#     print(paste0("Accounting for batch: ", batch))
+#     experiment = metadata %>% select(SampleNames = sample.names, Condition = condition, Batch = batch, file.name = file.var) %>% remove_rownames() %>% mutate(Condition = factor(Condition,levels=c(ctrl, mut)))
+#     file_paths = experiment %>% mutate(file_paths = case_when(file.exists(file.path(irfinder.dir,file.name,"IRFinder-IR-dir.txt")) ~ file.path(irfinder.dir,file.name,"IRFinder-IR-dir.txt"), TRUE ~ file.path(irfinder.dir,file.name,"IRFinder-IR-nondir.txt"))) %>% pull(file_paths)
+#     print("Importing stranded IRFinder output: IRFinder-IR-dir.txt or IRFinder-IR-nondir.txt")
+#     metaList = DESeqDataSetFromIRFinder(filePaths=file_paths, designMatrix=experiment, designFormula = ~ Batch + Condition + Condition:IRFinder)
+#   }
+#   dds = DESeq(metaList$DESeq2Object)
+#   res.ctrl = DESeq2::results(dds, name = paste0("Condition",ctrl,".IRFinderIR")) # tests IR reads vs spliced reads in ctrl
+#   res.mut = DESeq2::results(dds, name = paste0("Condition",mut,".IRFinderIR")) # get IR ratio in the mut samples
+#   res = DESeq2::results(dds, contrast=list(paste0("Condition",mut,".IRFinderIR"),  paste0("Condition",ctrl,".IRFinderIR")))
+#   ir.res = cleanIRFinder(mutant_vs_ctrl = res, mutant = res.mut, ctrl = res.ctrl)
+#   ir.ge.res = summariseIRjoinGE(cleanIRFinder = ir.res, GE = ge.res)
+#   return(list(irfinder=ir.res,ir.ge=ir.ge.res))
+# }
+
 
 
 mergeIRFinderQuantDESeq2 <- function(cleanIRFinderQuantCompared = NULL, deseq_res = NULL, mass_spec = NULL){
