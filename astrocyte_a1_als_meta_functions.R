@@ -529,7 +529,7 @@ DESeq.analysis <- function(metadata = treated.who.metadata, design = ~ 1, contra
         if(contrast != "NA"){ res.tx <- DESeq2::results(dds.tx, name = contrast) %>% as_tibble(rownames = "transcript_id") %>% left_join(mus.musculus.tx2gene, by="transcript_id") %>% mutate(gene_name.mouse = gene_name, gene_name = toupper(gene_name)) %>% arrange(pvalue) }
         }
       }
-    if(contrast != "NA"){ cat(blue(paste("Significant events: padj < 0.05 = ", nrow(filter(res, padj < 0.05)), ", pvalue < 0.05 = ", nrow(filter(res, pvalue < 0.05))))) }
+    if(contrast != "NA"){ cat(blue(paste("Significant events: padj < 0.05 = ", nrow(filter(res, padj < 0.05)), ", pvalue < 0.05 = ", nrow(filter(res, pvalue < 0.05)),"\n"))) }
   } else if(length(contrast) > 1){
     cat(green(paste(length(contrast), "contrasts specified")))
     if(species == "human"){
