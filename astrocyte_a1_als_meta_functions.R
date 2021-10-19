@@ -498,7 +498,7 @@ display_venn <- function(x, ...){
 }
 
 # DESeq2 Functions ------------------
-DESeq.analysis <- function(metadata = treated.who.metadata, design = ~ stimulated, contrast = "stimulated_A1_vs_A0", species = "human", transcript.level = TRUE){
+DESeq.analysis <- function(metadata = treated.who.metadata, design = ~ 1, contrast = "NA", species = "human", transcript.level = TRUE){
   metadata.files <- metadata$file_salmon
   names(metadata.files) <- metadata$sample
   rownames(metadata) <- metadata$sample
@@ -510,11 +510,11 @@ DESeq.analysis <- function(metadata = treated.who.metadata, design = ~ stimulate
       print(resultsNames(dds))
       vsd <- vst(dds, blind=FALSE)
       vsd.counts <- as_tibble(assay(vsd), rownames = "gene_id")  %>% left_join(gene2ens)
-      res <- DESeq2::results(dds, name = contrast) %>% as_tibble(rownames = "gene_id") %>% left_join(gene2ens) %>% arrange(pvalue) 
+      if(contrast != "NA"){ res <- DESeq2::results(dds, name = contrast) %>% as_tibble(rownames = "gene_id") %>% left_join(gene2ens) %>% arrange(pvalue) }
       if(transcript.level == TRUE){
         cat(blue("transcript level analysis\n"))
         dds.tx <- tximport(metadata.files, type="salmon", txOut = TRUE) %>% DESeqDataSetFromTximport(colData = metadata, design = design) %>% DESeq()
-        res.tx <- DESeq2::results(dds.tx, name = contrast) %>% as_tibble(rownames = "transcript_id") %>% left_join(tx2gene, by="transcript_id") %>% arrange(pvalue)
+        if(contrast != "NA"){ res.tx <- DESeq2::results(dds.tx, name = contrast) %>% as_tibble(rownames = "transcript_id") %>% left_join(tx2gene, by="transcript_id") %>% arrange(pvalue) }
         }
       } else if(species == "mouse"){
       cat(blue("\nusing mouse gene names\n"))
@@ -522,14 +522,14 @@ DESeq.analysis <- function(metadata = treated.who.metadata, design = ~ stimulate
       print(resultsNames(dds))
       vsd <- vst(dds, blind=FALSE)
       vsd.counts <- as_tibble(assay(vsd), rownames = "gene_id")  %>% left_join(mus.musculus.gene2ens)
-      res <- DESeq2::results(dds, name = contrast) %>% as_tibble(rownames = "gene_id") %>% left_join(mus.musculus.gene2ens) %>% mutate(gene_name.mouse = gene_name, gene_name = toupper(gene_name)) %>% arrange(pvalue)
+      if(contrast != "NA"){ res <- DESeq2::results(dds, name = contrast) %>% as_tibble(rownames = "gene_id") %>% left_join(mus.musculus.gene2ens) %>% mutate(gene_name.mouse = gene_name, gene_name = toupper(gene_name)) %>% arrange(pvalue) }
       if(transcript.level == TRUE){
         cat(blue("transcript level analysis\n"))
         dds.tx <- tximport(metadata.files, type="salmon", txOut = TRUE) %>% DESeqDataSetFromTximport(colData = metadata, design = design) %>% DESeq()
-        res.tx <- DESeq2::results(dds.tx, name = contrast) %>% as_tibble(rownames = "transcript_id") %>% left_join(mus.musculus.tx2gene, by="transcript_id") %>% mutate(gene_name.mouse = gene_name, gene_name = toupper(gene_name)) %>% arrange(pvalue)
+        if(contrast != "NA"){ res.tx <- DESeq2::results(dds.tx, name = contrast) %>% as_tibble(rownames = "transcript_id") %>% left_join(mus.musculus.tx2gene, by="transcript_id") %>% mutate(gene_name.mouse = gene_name, gene_name = toupper(gene_name)) %>% arrange(pvalue) }
         }
       }
-    cat(blue(paste("Significant events: padj < 0.05 = ", nrow(filter(res, padj < 0.05)), ", pvalue < 0.05 = ", nrow(filter(res, pvalue < 0.05)))))
+    if(contrast != "NA"){ cat(blue(paste("Significant events: padj < 0.05 = ", nrow(filter(res, padj < 0.05)), ", pvalue < 0.05 = ", nrow(filter(res, pvalue < 0.05))))) }
   } else if(length(contrast) > 1){
     cat(green(paste(length(contrast), "contrasts specified")))
     if(species == "human"){
@@ -574,12 +574,11 @@ DESeq.analysis <- function(metadata = treated.who.metadata, design = ~ stimulate
         }
       }
   }
-  if(transcript.level == TRUE){
-    return(list(dds=dds,vsd=vsd,vsd.counts=vsd.counts,res=res,res.tx=res.tx))
-    } else {
-      return(list(dds=dds,vsd=vsd,vsd.counts=vsd.counts,res=res))
-    }
-  }
+  if(transcript.level == TRUE & contrast != "NA"){ return(list(dds=dds,vsd=vsd,vsd.counts=vsd.counts,res=res,res.tx=res.tx)) } 
+  else if(transcript.level == FALSE & contrast != "NA"){ return(list(dds=dds,vsd=vsd,vsd.counts=vsd.counts,res=res)) }
+  else if(contrast == "NA"){ return(list(dds=dds,vsd=vsd,vsd.counts=vsd.counts)) }
+}
+
 
 
 
