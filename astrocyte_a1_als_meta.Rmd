@@ -33,8 +33,8 @@ git_ls() # list git tree
 git_log() # check recent commits
 git_status() # check which files are modified
 # pr_resume("figures_and_tables") # resume a branch
-# git_add(".") #stage the files you want to commmit - "." indicates all files.
-# git_commit("astrocyte comparison") # commit with comment
+git_add(".") #stage the files you want to commmit - "." indicates all files.
+git_commit("update") # commit with comment
 # pr_pull()
 ```
 
