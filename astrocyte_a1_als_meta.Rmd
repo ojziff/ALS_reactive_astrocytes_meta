@@ -308,6 +308,10 @@ patani.volcano <- volcano_plot_deseq(data = patani$res, labels_list = interestin
   geom_segment(aes(x = -3, xend = -9, y= 7, yend= 7),arrow=arrow(length=unit(0.3,"cm")), color = "dodgerblue2") +
   annotate("text", x = 6, y = 8, label = "Up in VCP", color = "firebrick2", size = 2.8) + annotate("text", x = -6, y = 8, label = "Down in VCP", color = "dodgerblue2", size = 2.8)
 patani.volcano
+
+patani$res %>% filter(padj < 0.05, log2FoldChange > 0) # 91
+patani$res %>% filter(padj < 0.05, log2FoldChange < 0) # 108
+
 ```
 
 ## RNAseq VCP GO terms
@@ -391,6 +395,10 @@ mass_spec.volcano <- ggplot(data = mass_spec.res.volcano, aes(x = lfc, y =  -log
   annotate("text", x = 1.7, y = 3, label = "Up in VCP", color = "firebrick2", size = 2.8) + annotate("text", x = -1.7, y = 3, label = "Down in VCP", color = "dodgerblue2", size = 2.8)
 mass_spec.volcano
 
+mass_spec.res.volcano$direction %>% table
+# downregulated     unchanged   upregulated 
+           # 36          1120             4
+
 # GO terms mass spec
 patani.mass_spec.dge_genes <- mass_spec.res %>% filter(pval < 0.05) %>% group_split(lfc > 0) %>%  map("gene_name") # create list of IR up/down & Expression up/down genes
 patani.mass_spec.dge_genes <- gost(patani.mass_spec.dge_genes) # run gprofiler2 on all groups - runs on all KEGG, GO, REAC,TF, WP pathways simultaneously
@@ -420,8 +428,8 @@ patani.mass_spec.go_curated <- curated_profiles(gprofiles = patani.mass_spec.dge
 patani.mass_spec.go_curated
 
 # how many of phagocytosis & glutamate uptake detected proteins are downregulated? 
-mass_spec.res %>% filter(gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS, lfc < 0) # 26 / 31
-mass_spec.res %>% filter(gene_name %in% glutamate.uptake.go, lfc < 0) # 26 / 44
+mass_spec.res %>% filter(gene_name %in% glutamate.uptake.go) # 44
+mass_spec.res %>% filter(gene_name %in% glutamate.uptake.go, lfc < 0) # 26 / 44 ()
 ```
 
 ## VCP Glutamate Uptake assay
@@ -957,17 +965,6 @@ birger$res %>% filter(padj < 0.05, gene_name %in% go.pathways.msigdb$GO_EXTRACEL
 birger.geneList <- birger$res %>% drop_na(log2FoldChange) %>% pull(log2FoldChange)
 names(birger.geneList) <- birger$res %>% drop_na(log2FoldChange) %>% pull(gene_name) %>% as.character()
 birger.geneList = sort(birger.geneList, decreasing = TRUE)
-phagocytosis_genes.list <- list("phagocytosis" = birger$res$gene_name[birger$res$gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS])
-birger.phagocytosis_fgseaRes <- fgsea(pathways = phagocytosis_genes.list, stats = birger.geneList)
-birger.phagocytosis_fgseaRes
-#         pathway  pval  padj   log2err        ES      NES size                          leadingEdge
-# 1: phagocytosis 0.104 0.104 0.2279872 0.2617714 1.172452  253 MYH2,NCF2,MARCO,HCK,PPARG,FCGR2A,...
-birger.phagocytosis.gseaplot = plotEnrichment(phagocytosis_genes.list[["phagocytosis"]], birger.geneList)  + 
-  theme(axis.text=element_text(size=8), axis.title=element_text(size=10)) + ylab(expression(Phagocytosis)) + xlab(expression(C9orf72)) + 
-  annotate("text", x = 100, y = -0.1, label = paste0("NES = ", round(birger.phagocytosis_fgseaRes$NES, digits = 3),"\nP = ", round(birger.phagocytosis_fgseaRes$pval, digits = 3)), size = 3, hjust = 0)
-birger.phagocytosis.gseaplot
-
-# GSEA glutamate uptake
 glutamate.uptake_genes.list <- list("glutamate.uptake" = birger$res$gene_name[birger$res$gene_name %in% glutamate.uptake.go])
 birger.glutamate.uptake_fgseaRes <- fgsea(pathways = glutamate.uptake_genes.list, stats = birger.geneList)
 birger.glutamate.uptake_fgseaRes
@@ -1053,21 +1050,9 @@ tyzack$res %>% filter(padj < 0.05, gene_name %in% go.pathways.msigdb$GO_EXTRACEL
 ### GSEA: Glutamate uptake
 
 ```{r}
-# GSEA phagocytosis
 tyzack.geneList <- tyzack$res %>% drop_na(log2FoldChange) %>% pull(log2FoldChange)
 names(tyzack.geneList) <- tyzack$res %>% drop_na(log2FoldChange) %>% pull(gene_name) %>% as.character()
 tyzack.geneList = sort(tyzack.geneList, decreasing = TRUE)
-phagocytosis_genes.list <- list("phagocytosis" = tyzack$res$gene_name[tyzack$res$gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS])
-tyzack.phagocytosis_fgseaRes <- fgsea(pathways = phagocytosis_genes.list, stats = tyzack.geneList)
-tyzack.phagocytosis_fgseaRes
-# pathway      pval      padj    log2err        ES      NES size
-# 1: phagocytosis 0.3884674 0.3884674 0.07788401 -0.267089 -1.02216  227
-tyzack.phagocytosis.gseaplot = plotEnrichment(phagocytosis_genes.list[["phagocytosis"]], tyzack.geneList) + 
-  theme(axis.text=element_text(size=8), axis.title=element_text(size=10)) + ylab(expression(Phagocytosis)) + xlab(expression(SOD1)) +
-  annotate("text", x = 100, y = -0.15, label = paste0("NES = ", round(tyzack.phagocytosis_fgseaRes$NES, digits = 3),"\nP = ", round(tyzack.phagocytosis_fgseaRes$pval, digits = 3)), size = 3, hjust = 0)
-tyzack.phagocytosis.gseaplot
-
-# GSEA glutamate uptake
 glutamate.uptake_genes.list <- list("glutamate.uptake" = tyzack$res$gene_name[tyzack$res$gene_name %in% glutamate.uptake.go])
 tyzack.glutamate.uptake_fgseaRes <- fgsea(pathways = glutamate.uptake_genes.list, stats = tyzack.geneList)
 tyzack.glutamate.uptake_fgseaRes
@@ -1165,22 +1150,9 @@ neyrinck$res %>% filter(padj < 0.05, gene_name %in% go.pathways.msigdb$GO_EXTRAC
 ### GSEA: Glutamate uptake
 
 ```{r}
-# GSEA phagocytosis
 neyrinck.geneList <- neyrinck$res %>% drop_na(log2FoldChange) %>% pull(log2FoldChange)
 names(neyrinck.geneList) <- neyrinck$res %>% drop_na(log2FoldChange) %>% pull(gene_name) %>% as.character()
 neyrinck.geneList = sort(neyrinck.geneList, decreasing = TRUE)
-phagocytosis_genes.list <- list("phagocytosis" = neyrinck$res$gene_name[neyrinck$res$gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS])
-neyrinck.phagocytosis_fgseaRes <- fgsea(pathways = phagocytosis_genes.list, stats = neyrinck.geneList)
-neyrinck.phagocytosis_fgseaRes
-#  pathway      pval      padj    log2err         ES        NES size
-# 1: phagocytosis 0.4952077 0.4952077 0.06815134 -0.2497881 -0.9934343  236
-neyrinck.phagocytosis.gseaplot = plotEnrichment(phagocytosis_genes.list[["phagocytosis"]], neyrinck.geneList) + 
-  theme(axis.text=element_text(size=8), axis.title=element_text(size=10)) + 
-  annotate("text", x = 100, y = -0.15, label = paste0("NES = ", round(neyrinck.phagocytosis_fgseaRes$NES, digits = 3),"\nP = ", round(neyrinck.phagocytosis_fgseaRes$pval, digits = 3)), size = 3, hjust = 0) +
-  ylab(expression(Phagocytosis)) + xlab(expression(FUS))
-neyrinck.phagocytosis.gseaplot
-
-# GSEA glutamate uptake
 glutamate.uptake_genes.list <- list("glutamate.uptake" = neyrinck$res$gene_name[neyrinck$res$gene_name %in% glutamate.uptake.go])
 neyrinck.glutamate.uptake_fgseaRes <- fgsea(pathways = glutamate.uptake_genes.list, stats = neyrinck.geneList)
 neyrinck.glutamate.uptake_fgseaRes
@@ -1443,6 +1415,9 @@ als_datasets.volcano <- volcano_plot_deseq(data = als_datasets$res, labels_list 
   geom_segment(aes(x = -1, xend = -6, y= 10, yend= 10),arrow=arrow(length=unit(0.3,"cm")), color = "dodgerblue2") +
   annotate("text", x = 3, y = 10.5, label = "Up in ALS", color = "firebrick2", size = 2.8) + annotate("text", x = -3, y = 10.5, label = "Down in ALS", color = "dodgerblue2", size = 2.8)
 als_datasets.volcano
+
+als_datasets$res %>% filter(padj<0.05, log2FoldChange > 0) # 1309
+als_datasets$res %>% filter(padj<0.05, log2FoldChange < 0) # 1562
 
 ```
 
@@ -1712,20 +1687,6 @@ write_csv(als_a1_datasets_merged.dge, "/camp/home/ziffo/home/projects/astrocyte-
 
 # Fig. S5 Sporadic ALS astrocytes
 
-## GO terms
-
-```{r}
-ferraiuolo.dge_genes <- ferraiuolo.res %>% filter(pvalue < 0.05) %>% group_split(log2FoldChange > 0) %>%  map("gene_name") # create list of IR up/down & Expression up/down genes
-ferraiuolo.dge_genes <- gost(ferraiuolo.dge_genes) # run gprofiler2 on all groups - runs on all KEGG, GO, REAC,TF, WP pathways simultaneously
-ferraiuolo.dge_gprofiles_filt <- ferraiuolo.dge_genes$result %>% filter(!str_detect(source, "TF|CORUM")) %>% arrange( -log10(p_value) ) %>% 
-  mutate(query = case_when(query == "query_1" ~ "sporadic ALS Down ", query == "query_2" ~ "sporadic ALS Up "), term_name = as.factor(term_name)) 
-ferraiuolo.dge_gprofiles_down <- ferraiuolo.dge_gprofiles_filt %>% filter(query == "sporadic ALS Down ")
-ferraiuolo.dge_gprofiles_up <- ferraiuolo.dge_gprofiles_filt %>% filter(query == "sporadic ALS Up ")
-paste('"',unique(ferraiuolo.dge_gprofiles_down$term_name),'",', sep = "", collapse = '\n') %>% cat()
-paste('"',unique(ferraiuolo.dge_gprofiles_up$term_name),'",', sep = "", collapse = '\n') %>% cat()
-```
-
-
 ## GSEA
 
 ```{r}
@@ -1733,15 +1694,6 @@ paste('"',unique(ferraiuolo.dge_gprofiles_up$term_name),'",', sep = "", collapse
 ferraiuolo.geneList <- ferraiuolo.res %>% drop_na(log2FoldChange) %>% pull(log2FoldChange)
 names(ferraiuolo.geneList) <- ferraiuolo.res %>% drop_na(log2FoldChange) %>% pull(gene_name) %>% as.character()
 ferraiuolo.geneList = sort(ferraiuolo.geneList, decreasing = TRUE)
-# phagocytosis_genes.list <- list("phagocytosis" = ferraiuolo.res$gene_name[ferraiuolo.res$gene_name %in% go.pathways.msigdb$GO_PHAGOCYTOSIS])
-# ferraiuolo.phagocytosis_fgseaRes <- fgsea(pathways = phagocytosis_genes.list, stats = ferraiuolo.geneList)
-# ferraiuolo.phagocytosis_fgseaRes
-# #         pathway         pval         padj   log2err        ES       NES size
-# # 1: phagocytosis 5.565656e-07 5.565656e-07 0.6594444 -0.452955 -1.764137  251
-# ferraiuolo.phagocytosis.gseaplot = as.ggplot(plotEnrichment(phagocytosis_genes.list[["phagocytosis"]], ferraiuolo.geneList)) + labs(subtitle = "Sporadic ALS Phagocytosis GSEA") + theme(plot.subtitle = element_text(hjust = 0.5))
-# ferraiuolo.phagocytosis.gseaplot
-
-# GSEA glutamate uptake
 glutamate.uptake_genes.list <- list("glutamate.uptake" = ferraiuolo.res$gene_name[ferraiuolo.res$gene_name %in% glutamate.uptake.go])
 ferraiuolo.glutamate.uptake_fgseaRes <- fgsea(pathways = glutamate.uptake_genes.list, stats = ferraiuolo.geneList)
 ferraiuolo.glutamate.uptake_fgseaRes
@@ -1751,7 +1703,11 @@ ferraiuolo.glutamate.gseaplot = plotEnrichment(glutamate.uptake_genes.list[["glu
   theme(axis.text=element_text(size=8), axis.title=element_text(size=10)) + ylab(expression(Glutamate~Uptake)) + xlab(expression(Sporadic~ALS)) +  
   annotate("text", x = 100, y = -0.12, label = paste0("NES = ", round(ferraiuolo.glutamate.uptake_fgseaRes$NES, digits = 3),"\nP = 0.08"), size = 3, hjust = 0)
 ferraiuolo.glutamate.gseaplot
+#     pathway   pval   padj   log2err        ES      NES size                               leadingEdge
+# 1: glutamate.uptake 0.0784 0.0784 0.2020717 0.3070159 1.194868  389 PRKAR2B,GRM3,NPTX2,PCDH17,PLPPR4,NRGN,...
 
+ferraiuolo.res %>% filter(pvalue < 0.05, log2FoldChange > 0) # 45
+ferraiuolo.res %>% filter(pvalue < 0.05, log2FoldChange < 0) # 29
 ```
 
 
@@ -4645,6 +4601,8 @@ Sod1.TRAP_guttenplan.A1_merged.dge <- cleveland.dge %>% full_join(guttenplan.A1.
   arrange(overlap) %>%  select(gene_name, overlap, everything()) %>% filter(overlap != "None")
 
 write_csv(Sod1.TRAP_guttenplan.A1_merged.dge, "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/TableS10.overlap_Sod1.TRAP_A1.csv")
+
+
 ```
 
 
