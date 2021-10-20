@@ -4,7 +4,7 @@ This repository contains scripts to analyse the data and reproduce the figures f
 Meta-analysis of human and mouse ALS astrocytes reveals multiomic signatures of inflammatory reactive states.
 Oliver J. Ziff*, Benjamin E. Clarke*, Doaa M. Taha*, Hamish Crerar, Nicholas M. Luscombe, Rickie Patani
 
-![GitHub Logo](/images/working_model.fig5.png)
+![GitHub Logo](/working_model.fig5.png)
 
 The scripts are written in Rmarkdown documents for readability and are organised in order of the Figures and Tables in the paper.
 
