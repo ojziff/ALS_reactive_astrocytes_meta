@@ -1703,7 +1703,7 @@ ferraiuolo.glutamate.gseaplot = plotEnrichment(glutamate.uptake_genes.list[["glu
   theme(axis.text=element_text(size=8), axis.title=element_text(size=10)) + ylab(expression(Glutamate~Uptake)) + xlab(expression(Sporadic~ALS)) +  
   annotate("text", x = 100, y = -0.12, label = paste0("NES = ", round(ferraiuolo.glutamate.uptake_fgseaRes$NES, digits = 3),"\nP = 0.08"), size = 3, hjust = 0)
 ferraiuolo.glutamate.gseaplot
-#     pathway   pval   padj   log2err        ES      NES size                               leadingEdge
+#             pathway   pval   padj   log2err        ES      NES size                               leadingEdge
 # 1: glutamate.uptake 0.0784 0.0784 0.2020717 0.3070159 1.194868  389 PRKAR2B,GRM3,NPTX2,PCDH17,PLPPR4,NRGN,...
 
 ferraiuolo.res %>% filter(pvalue < 0.05, log2FoldChange > 0) # 45
@@ -1714,12 +1714,6 @@ ferraiuolo.res %>% filter(pvalue < 0.05, log2FoldChange < 0) # 29
 ## panALS & sporadic Scatter
 
 ```{r}
-# ferraiuolo.res = read_tsv("/camp/lab/luscomben/home/shared/projects/patani-collab/public-data/sporadic-human-ferraiuolo-2016/GSE87385.top.table.astrocyte.als_vs_ctrl.tsv") %>%
-#   drop_na(Gene.symbol) %>% group_by(Gene.symbol) %>% 
-#   summarise(log2FoldChange = mean(logFC, na.rm = TRUE), padj = mean(adj.P.Val, na.rm = TRUE), pvalue = mean(P.Value, na.rm = TRUE)) %>% arrange(pvalue) %>%  #rename(gene_name = Gene.symbol) %>% 
-#   mutate(gene_name = str_split_fixed(.$Gene.symbol, "///", 2)[,1]) %>%
-#   left_join(gene2ens) # 3101 gene_name unrecognised ensembl IDs
-
 # # correlate ferraiuolo sporadic with panALS:
 als_datasets.res.ferraiuolo <- als_datasets$res %>% select(gene_name, log2FC.ALS = log2FoldChange, FDR.ALS = padj) %>%  drop_na(log2FC.ALS) %>% distinct(gene_name, .keep_all = TRUE)
 ferraiuolo.res.filt <- ferraiuolo.res %>% select(gene_name, log2FC.sporadic = log2FoldChange, FDR.sporadic = pvalue) %>% drop_na(log2FC.sporadic) %>% distinct(gene_name, .keep_all = TRUE)
@@ -1799,22 +1793,21 @@ A1.DGE.up.genes <- a1_datasets$res %>% filter(padj < 0.05, log2FoldChange > 0) %
 genome.size <- a1_datasets$res %>% distinct(gene_name) %>% nrow
 newGeneOverlap(sporadic.ALS.DGE.up.genes,   A1.DGE.up.genes,  genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=48
-# listB size=4429
-# Intersection size=5
-# Overlapping p-value=0.27
+# listA size=45
+# listB size=4025
+# Intersection size=3
+# Overlapping p-value=0.58
 # Jaccard Index=0.0
 
 sporadic.ALS.DGE.down.genes <- ferraiuolo.res %>% filter(pvalue < 0.05, log2FoldChange < 0) %>% pull(gene_name)
 A1.DGE.down.genes <- a1_datasets$res %>% filter(padj < 0.05, log2FoldChange < 0) %>% pull(gene_name)
 newGeneOverlap(sporadic.ALS.DGE.down.genes,A1.DGE.down.genes,genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=30
-# listB size=5168
+# listA size=29
+# listB size=4694
 # Intersection size=2
-# Overlapping p-value=0.74
+# Overlapping p-value=0.67
 # Jaccard Index=0.0
-# 
 
 
 ```
@@ -1931,33 +1924,33 @@ genome.size <- als_datasets_zamanian.dge %>% distinct(gene_name) %>% nrow
 
 newGeneOverlap(ALS.DGE.up.genes, A2.DGE.down.genes, genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=1454
+# listA size=1309
 # listB size=1460
-# Intersection size=113
-# Overlapping p-value=2.9e-18
+# Intersection size=108
+# Overlapping p-value=3.8e-19
 # Jaccard Index=0.0
 newGeneOverlap(ALS.DGE.down.genes, A2.DGE.up.genes, genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=1928
+# listA size=1562
 # listB size=1312
-# Intersection size=87
-# Overlapping p-value=2e-05
+# Intersection size=64
+# Overlapping p-value=3.1e-03
 # Jaccard Index=0.0
 
 newGeneOverlap(ALS.DGE.up.genes,A2.DGE.up.genes,genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=1454
+# listA size=1309
 # listB size=1312
-# Intersection size=129
-# Overlapping p-value=3.7e-30
-# Jaccard Index=0.0
+# Intersection size=134
+# Overlapping p-value=2e-37
+# Jaccard Index=0.1
 
 newGeneOverlap(ALS.DGE.down.genes,A2.DGE.down.genes,genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=1928
+# listA size=1562
 # listB size=1460
-# Intersection size=190
-# Overlapping p-value=2.3e-44
+# Intersection size=171
+# Overlapping p-value=1.7e-45
 # Jaccard Index=0.1
 
 ```
@@ -2001,45 +1994,42 @@ SCI_ALS_scatter <- ggscatter(als_datasets_anderson.dge, x = "log2FC.ALS", y = "l
 SCI_ALS_scatter
 
 # Overlap tested using Fisher's exact test (alternative=greater)
-
-
-
 ALS.DGE.up.genes <- als_datasets$res %>% filter(padj < 0.05, log2FoldChange > 0) %>% pull(gene_name)
 SCI.DGE.up.genes <- anderson$res %>% filter(padj < 0.05, log2FoldChange > 0) %>% pull(gene_name)
 genome.size <- als_datasets$res %>% distinct(gene_name) %>% nrow
 newGeneOverlap(ALS.DGE.up.genes,SCI.DGE.up.genes,genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=1454
+# listA size=1309
 # listB size=2622
-# Intersection size=216
-# Overlapping p-value=2.5e-57
+# Intersection size=215
+# Overlapping p-value=9e-65
 # Jaccard Index=0.1
 
 ALS.DGE.down.genes <- als_datasets$res %>% filter(padj < 0.05, log2FoldChange < 0) %>% pull(gene_name)
 SCI.DGE.down.genes <- anderson$res %>% filter(padj < 0.05, log2FoldChange < 0) %>% pull(gene_name)
 newGeneOverlap(ALS.DGE.down.genes,SCI.DGE.down.genes, genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=1928
+# listA size=1562
 # listB size=2274
-# Intersection size=204
-# Overlapping p-value=1.1e-40
-# Jaccard Index=0.1
+# Intersection size=176
+# Overlapping p-value=1.2e-38
+# Jaccard Index=0.0
 
 #Opposite overlap
 newGeneOverlap(ALS.DGE.up.genes,SCI.DGE.down.genes,genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=1454
+# listA size=1309
 # listB size=2274
-# Intersection size=118
-# Overlapping p-value=6.1e-15
+# Intersection size=105
+# Overlapping p-value=4e-13
 # Jaccard Index=0.0
 
 newGeneOverlap(ALS.DGE.down.genes, SCI.DGE.up.genes, genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=1928
+# listA size=1562
 # listB size=2622
-# Intersection size=191
-# Overlapping p-value=1.8e-26
+# Intersection size=164
+# Overlapping p-value=1.6e-25
 # Jaccard Index=0.0
 ```
 
@@ -2064,21 +2054,6 @@ anderson_zamanian.A2_als_datasets_venn
 
 
 # Chi-squared 3 way overlap
-list1 <- unique(als_datasets.res.dge.down[!is.na(als_datasets.res.dge.down)])
-list2 <- unique(zamanian.A2.res.dge.up[!is.na(zamanian.A2.res.dge.up)])
-list3 <- unique(anderson.res.dge.up[!is.na(anderson.res.dge.up)])
-univ <- unique(gtf$gene_name[!is.na(gtf$gene_name)])
-xtab <- data.frame(Univ=univ, List1=as.integer(univ %in% list1), List2=as.integer(univ %in% list2), List3=as.integer(univ %in% list3))
-ftable <- as.data.frame(table(xtab[,c('List1','List2','List3')]))
-glm1 <- glm(Freq ~ List1 * List2 * List3, family='poisson',data=ftable)
-glm2 <- glm(Freq ~ List1*List2 + List1*List3 + List2*List3, family='poisson',data=ftable)
-anovatest <- anova(glm1,glm2,test='Chisq')
-pvalue <- anovatest[['Pr(>Chi)']][2] # 0.004703483
-ans <- list(xtab,ftable,glm1,glm2,pvalue)
-names(ans) <- c('xtab','ftable','glm1','glm2','pvalue')
-# $pvalue
-# [1] 4.876526e-06
-
 list1 <- unique(als_datasets.res.dge.up[!is.na(als_datasets.res.dge.up)])
 list2 <- unique(zamanian.A2.res.dge.down[!is.na(zamanian.A2.res.dge.down)])
 list3 <- unique(anderson.res.dge.down[!is.na(anderson.res.dge.down)])
@@ -2092,7 +2067,23 @@ pvalue <- anovatest[['Pr(>Chi)']][2] # 0.004703483
 ans <- list(xtab,ftable,glm1,glm2,pvalue)
 names(ans) <- c('xtab','ftable','glm1','glm2','pvalue')
 # $pvalue
-# [1] 2.948854e-14
+# [1] 6.830366e-11
+
+
+list1 <- unique(als_datasets.res.dge.down[!is.na(als_datasets.res.dge.down)])
+list2 <- unique(zamanian.A2.res.dge.up[!is.na(zamanian.A2.res.dge.up)])
+list3 <- unique(anderson.res.dge.up[!is.na(anderson.res.dge.up)])
+univ <- unique(gtf$gene_name[!is.na(gtf$gene_name)])
+xtab <- data.frame(Univ=univ, List1=as.integer(univ %in% list1), List2=as.integer(univ %in% list2), List3=as.integer(univ %in% list3))
+ftable <- as.data.frame(table(xtab[,c('List1','List2','List3')]))
+glm1 <- glm(Freq ~ List1 * List2 * List3, family='poisson',data=ftable)
+glm2 <- glm(Freq ~ List1*List2 + List1*List3 + List2*List3, family='poisson',data=ftable)
+anovatest <- anova(glm1,glm2,test='Chisq')
+pvalue <- anovatest[['Pr(>Chi)']][2] # 0.004703483
+ans <- list(xtab,ftable,glm1,glm2,pvalue)
+names(ans) <- c('xtab','ftable','glm1','glm2','pvalue')
+# $pvalue
+# [1] 1.133696e-05
 
 ```
 
@@ -2254,7 +2245,7 @@ als_datasets.dge <- als_datasets$res %>% select(gene_name, hsap.ensembl = gene_i
   mutate(direction.ALS = case_when(FDR.ALS < 0.05 & log2FC.ALS > 0 ~ "up", FDR.ALS < 0.05 & log2FC.ALS < 0 ~ "down", TRUE ~ "non-significant"))
 anderson.dge <- anderson$res %>% select(gene_name, log2FC.SCI = log2FoldChange, FDR.SCI = padj) %>% 
   mutate(direction.SCI = case_when(FDR.SCI < 0.05 & log2FC.SCI > 0 ~ "up", FDR.SCI < 0.05 & log2FC.SCI < 0 ~ "down", TRUE ~ "non-significant"))
-zamanian.A2.dge <- zamanian.A2$res %>% select(gene_name, log2FC.MCAO = log2FoldChange, FDR.MCAO = padj) %>% 
+zamanian.A2.dge <- zamanian.A2.res %>% select(gene_name, log2FC.MCAO = log2FoldChange, FDR.MCAO = padj) %>% 
   mutate(direction.MCAO = case_when(FDR.MCAO < 0.05 & log2FC.MCAO > 0 ~ "up", FDR.MCAO < 0.05 & log2FC.MCAO < 0 ~ "down", TRUE ~ "non-significant"))
 
 als_protective_datasets_merged.dge <- als_datasets.dge %>% left_join(anderson.dge) %>% left_join(zamanian.A2.dge) %>% 
@@ -2300,23 +2291,6 @@ A1.hipsc_ALS_scatter.liddelow
 als_datasets_a1_datasets.liddelow # 41
 als_datasets_a1_datasets.liddelow %>% filter((log2FC.ALS > 0 & log2FC.A1 > 0) | (log2FC.ALS < 0 & log2FC.A1 < 0)) # 22
 
-
-### A1 & sporadic ALS
-ferraiuolo.res.liddelow <- ferraiuolo.res %>% select(gene_name, log2FC.ALS = log2FoldChange) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
-a1_datasets.res.liddelow <- a1_datasets$res %>% select(gene_name, log2FC.A1 = log2FoldChange) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
-ferraiuolo_a1_datasets.liddelow <- full_join(ferraiuolo.res.liddelow, a1_datasets.res.liddelow, by = "gene_name") %>% left_join(astrocyte.reactivity.markers) %>% drop_na() %>% rename(Markers = group)
-A1.sporadic_ALS_scatter.liddelow <- ggscatter(ferraiuolo_a1_datasets.liddelow, x = "log2FC.ALS", y = "log2FC.A1", color = "Markers", cor.coef = TRUE, cor.method = "pearson",
-          xlab = expression( Log[2]~Fold~Change~sporadic~ALS:CTRL), ylab = expression(Log[2]~Fold~Change~hiPSC~A1:A0), size = 0.5) + theme(legend.position = "top") +
-          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +
-    geom_text_repel(data = filter(ferraiuolo_a1_datasets.liddelow, Markers == "A1"), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +
-  # annotate(geom="text", x=1, y=10, label="ALS & A1 both Up", color="firebrick2", size = 3.2) +
-  labs(subtitle = expression(hiPSC~A1~and~sporadic~ALS~atrocytes:Liddelow~markers))
-A1.sporadic_ALS_scatter.liddelow
-
-ferraiuolo_a1_datasets.liddelow # 40
-ferraiuolo_a1_datasets.liddelow %>% filter((log2FC.ALS > 0 & log2FC.A1 > 0) | (log2FC.ALS < 0 & log2FC.A1 < 0)) # 20
-
-
 ### MCAO & ALS
 als_datasets.res.liddelow <- als_datasets$res %>% select(gene_name, log2FC.ALS = log2FoldChange) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
 zamanian.res.liddelow <- zamanian.A2.res %>% select(gene_name, log2FC.A2 = log2FoldChange) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
@@ -2344,6 +2318,21 @@ SCI_ALS_scatter.liddelow
 
 als_datasets_anderson.liddelow # 32
 als_datasets_anderson.liddelow %>% filter((log2FC.ALS > 0 & log2FC.A2 > 0) | (log2FC.ALS < 0 & log2FC.A2 < 0)) # 14
+
+### A1 & sporadic ALS
+ferraiuolo.res.liddelow <- ferraiuolo.res %>% select(gene_name, log2FC.ALS = log2FoldChange) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
+a1_datasets.res.liddelow <- a1_datasets$res %>% select(gene_name, log2FC.A1 = log2FoldChange) %>% distinct(gene_name, .keep_all = TRUE) %>% filter(gene_name %in% astrocyte.reactivity.markers$gene_name)
+ferraiuolo_a1_datasets.liddelow <- full_join(ferraiuolo.res.liddelow, a1_datasets.res.liddelow, by = "gene_name") %>% left_join(astrocyte.reactivity.markers) %>% drop_na() %>% rename(Markers = group)
+A1.sporadic_ALS_scatter.liddelow <- ggscatter(ferraiuolo_a1_datasets.liddelow, x = "log2FC.ALS", y = "log2FC.A1", color = "Markers", cor.coef = TRUE, cor.method = "pearson",
+          xlab = expression( Log[2]~Fold~Change~sporadic~ALS:CTRL), ylab = expression(Log[2]~Fold~Change~hiPSC~A1:A0), size = 0.5) + theme(legend.position = "top") +
+          geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +
+    geom_text_repel(data = filter(ferraiuolo_a1_datasets.liddelow, Markers == "A1"), aes(x = log2FC.ALS, y = log2FC.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +
+  # annotate(geom="text", x=1, y=10, label="ALS & A1 both Up", color="firebrick2", size = 3.2) +
+  labs(subtitle = expression(hiPSC~A1~and~sporadic~ALS~atrocytes:Liddelow~markers))
+A1.sporadic_ALS_scatter.liddelow
+
+ferraiuolo_a1_datasets.liddelow # 40
+ferraiuolo_a1_datasets.liddelow %>% filter((log2FC.ALS > 0 & log2FC.A1 > 0) | (log2FC.ALS < 0 & log2FC.A1 < 0)) # 20
 
 ```
 
@@ -3200,7 +3189,7 @@ GSEA of glutamate uptake & phagocytosis GO categories in ALS and A1 astrocytes
 mouse_als_datasets.geneList <- mouse_als_datasets$res %>% drop_na(log2FoldChange) %>% pull(log2FoldChange)
 names(mouse_als_datasets.geneList) <- mouse_als_datasets$res %>% drop_na(log2FoldChange) %>% pull(gene_name) %>% as.character()
 mouse_als_datasets.geneList = sort(mouse_als_datasets.geneList, decreasing = TRUE)
-mouse_als_datasets.glutamate.uptake_genes.list <- list("glutamate.uptake" = mouse_als_datasets.res$gene_name[mouse_als_datasets.res$gene_name %in% glutamate.uptake.go]) # gprofiler_database$`glutamatergic synapse`
+mouse_als_datasets.glutamate.uptake_genes.list <- list("glutamate.uptake" = mouse_als_datasets$res$gene_name[mouse_als_datasets$res$gene_name %in% glutamate.uptake.go]) # gprofiler_database$`glutamatergic synapse`
 mouse_als_datasets.glutamate.uptake_fgseaRes <- fgsea(pathways = mouse_als_datasets.glutamate.uptake_genes.list, stats = mouse_als_datasets.geneList)
 mouse_als_datasets.glutamate.uptake_fgseaRes
 #             pathway     pval     padj    log2err         ES        NES size
@@ -3287,6 +3276,9 @@ mouse_als_datasets.volcano <- volcano_plot_deseq(data = mouse_als_datasets$res, 
   geom_segment(aes(x = -1, xend = -3, y= 7, yend= 7),arrow=arrow(length=unit(0.3,"cm")), color = "dodgerblue2") +
   annotate("text", x = 2, y = 7.5, label = "Up in mouse ALS", color = "firebrick2", size = 2.8) + annotate("text", x = -2, y = 7.5, label = "Down in mouse ALS", color = "dodgerblue2", size = 2.8)
 mouse_als_datasets.volcano
+
+mouse_als_datasets$res %>% filter(padj < 0.05, log2FoldChange > 0) # 429
+mouse_als_datasets$res %>% filter(padj < 0.05, log2FoldChange < 0) # 624
 
 ```
 
@@ -3664,46 +3656,21 @@ human_mouse_als_datasets_venn = ggarrange(human_mouse_als_datasets_venn_up, huma
 human_mouse_als_datasets_venn
 
 
-newGeneOverlap(als_datasets.res.dge.up,mouse_als_datasets.res.dge.up, genome.size=nrow(distinct(als_datasets.res, gene_name))) %>% testGeneOverlap()
+newGeneOverlap(als_datasets.res.dge.up,mouse_als_datasets.res.dge.up, genome.size=nrow(distinct(als_datasets$res, gene_name))) %>% testGeneOverlap()
 # GeneOverlap object:
 # listA size=1309
-# listB size=431
+# listB size=429
 # Intersection size=41
-# Overlapping p-value=3.7e-15
+# Overlapping p-value=3.2e-15
 # Jaccard Index=0.0
 
-newGeneOverlap(als_datasets.res.dge.down,mouse_als_datasets.res.dge.down,genome.size=nrow(distinct(als_datasets.res, gene_name))) %>% testGeneOverlap()
+newGeneOverlap(als_datasets.res.dge.down,mouse_als_datasets.res.dge.down,genome.size=nrow(distinct(als_datasets$res, gene_name))) %>% testGeneOverlap()
 # GeneOverlap object:
 # listA size=1562
-# listB size=625
+# listB size=624
 # Intersection size=83
-# Overlapping p-value=2.4e-34
+# Overlapping p-value=2.1e-34
 # Jaccard Index=0.0
-
-# # Upregulated DEG
-# venn_mouse_als_datasets_als_datasets.up <- as.ggplot(
-#   ~draw.pairwise.venn(
-#     area1 = nrow( filter(mouse_als_datasets_als_datasets.dge, overlap_direction %in% c("mouse_ALS specific up","overlapping up") )),
-#     area2 = nrow( filter(mouse_als_datasets_als_datasets.dge, overlap_direction %in% c("human_ALS specific up","overlapping up") )),
-#     cross.area = nrow(filter(mouse_als_datasets_als_datasets.dge, overlap_direction %in% "overlapping up")),
-#     category = c("mouse ALS models", "human pan-ALS"),  fill = c("dodgerblue2", "firebrick2"),
-#     alpha = 0.5, cat.fontfamily = "sans", cat.pos = c(10,-10), cat.dist =rep(0.04, 2), scaled = FALSE)) +
-#   labs(subtitle = "Overlap Up") + theme(plot.subtitle = element_text(hjust = 0.5, colour = "firebrick2"))
-# venn_mouse_als_datasets_als_datasets.up
-# 
-# # Downregulated DEG
-# venn_mouse_als_datasets_als_datasets.down <- as.ggplot(
-#   ~draw.pairwise.venn(
-#     area1 = nrow( filter(mouse_als_datasets_als_datasets.dge, overlap_direction %in% c("mouse_ALS specific down", "overlapping down") )),
-#     area2 = nrow( filter(mouse_als_datasets_als_datasets.dge, overlap_direction %in% c("human_ALS specific down", "overlapping down"))),
-#     cross.area = nrow(filter(mouse_als_datasets_als_datasets.dge, overlap_direction == "overlapping down")),
-#     category = c("mouse ALS models", "human pan-ALS"),  fill = c("dodgerblue2", "firebrick2"),
-#     alpha = 0.5, cat.fontfamily = "sans", cat.pos = c(10,-10), cat.dist =rep(0.04, 2), scaled = FALSE)) +
-#   labs(subtitle = "Overlap Down") + theme(plot.subtitle = element_text(hjust = 0.5, colour = "dodgerblue2"))
-# venn_mouse_als_datasets_als_datasets.down
-# 
-# mouse_human_als_datasets_venn <- ggarrange(venn_mouse_als_datasets_als_datasets.up, venn_mouse_als_datasets_als_datasets.down, nrow = 2)
-# mouse_human_als_datasets_venn
 
 ```
 
@@ -3787,7 +3754,9 @@ als_guttenplan.A1_merged.dge <- mouse_als_datasets.dge %>% full_join(guttenplan.
                              direction.ALS == "up" ~ "ALS up", 
                              direction.ALS == "down" ~ "ALS down", 
                              direction.A1 == "up" ~ "", 
-                             direction.A1 == "down" ~ "A1 down",
+                             direction.A1 == "
+                             
+                             down" ~ "A1 down",
                              TRUE ~ "None"),
          overlap = factor(overlap, levels = c("overlapping up",  "overlapping down", "ALS u", "ALS down","A1 up","A1 down","None"))) %>%  
   arrange(overlap) %>%  select(gene_name, ensembl, overlap, everything()) %>% filter(overlap != "None")
@@ -3918,34 +3887,33 @@ SCI.DGE.up.genes <- anderson$res %>% filter(padj < 0.05, log2FoldChange > 0) %>%
 genome.size <- mouse_als_datasets$res %>% distinct(gene_name) %>% nrow
 newGeneOverlap(ALS.DGE.up.genes,SCI.DGE.up.genes,genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=431
+# listA size=429
 # listB size=2622
-# Intersection size=150
-# Overlapping p-value=3.2e-87
+# Intersection size=149
+# Overlapping p-value=1.7e-86
 # Jaccard Index=0.1
 ALS.DGE.down.genes <- mouse_als_datasets$res %>% filter(padj < 0.05, log2FoldChange < 0) %>% pull(gene_name)
 SCI.DGE.down.genes <- anderson$res %>% filter(padj < 0.05, log2FoldChange < 0) %>% pull(gene_name)
 newGeneOverlap(ALS.DGE.down.genes,SCI.DGE.down.genes, genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=625
+# listA size=624
 # listB size=2274
 # Intersection size=57
-# Overlapping p-value=2.4e-08
+# Overlapping p-value=2.2e-08
 # Jaccard Index=0.0
-#Opposite overlap
 newGeneOverlap(ALS.DGE.up.genes,SCI.DGE.down.genes,genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=431
+# listA size=429
 # listB size=2274
-# Intersection size=43
-# Overlapping p-value=1e-07
+# Intersection size=42
+# Overlapping p-value=2.4e-07
 # Jaccard Index=0.0
 newGeneOverlap(ALS.DGE.down.genes, SCI.DGE.up.genes, genome.size=genome.size) %>% testGeneOverlap()
 # GeneOverlap object:
-# listA size=625
+# listA size=624
 # listB size=2622
-# Intersection size=167
-# Overlapping p-value=4.3e-77
+# Intersection size=166
+# Overlapping p-value=2.6e-76
 # Jaccard Index=0.1
 ```
 
@@ -3998,7 +3966,7 @@ ans <- list(xtab,ftable,glm1,glm2,pvalue)
 names(ans) <- c('xtab','ftable','glm1','glm2','pvalue')
 ans
 # $pvalue
-# [1] 0.1162581
+# [1] 0.1150455
 
 list1 <- unique(mouse_als_datasets.res.dge.up[!is.na(mouse_als_datasets.res.dge.up)])
 list2 <- unique(zamanian.A2.res.dge.down[!is.na(zamanian.A2.res.dge.down)])
@@ -4014,7 +3982,7 @@ ans <- list(xtab,ftable,glm1,glm2,pvalue)
 names(ans) <- c('xtab','ftable','glm1','glm2','pvalue')
 ans
 # $pvalue
-# [1] 0.0004963502
+# [1] 0.0004816384
 
 
 ```
@@ -4063,14 +4031,7 @@ mouse_als_protective_datasets_merged.dge <- mouse_als_datasets.dge %>% left_join
 
 write_csv(mouse_als_protective_datasets_merged.dge, "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/TableS9.overlap_mouse_als_protective_datasets.csv")
 
-# cleveland.dge <- cleveland$res %>% select(gene_name, mmus.ensembl = gene_id, log2FC.TRAP = log2FoldChange, FDR.TRAP = padj) %>% mutate(direction.TRAP = case_when(FDR.TRAP < 0.05 & log2FC.TRAP > 0 ~ "up", FDR.TRAP < 0.05 & log2FC.TRAP < 0 ~ "down", TRUE ~ "non-significant"))
-# peng.dge <- peng$res %>% select(gene_name, mmus.ensembl = gene_id, log2FC.TDP43 = log2FoldChange, FDR.TDP43 = padj) %>% mutate(direction.TDP43 = case_when(FDR.TDP43 < 0.05 & log2FC.TDP43 > 0 ~ "up", FDR.TDP43 < 0.05 & log2FC.TDP43 < 0 ~ "down", TRUE ~ "non-significant"))
-# jiang.dge <- jiang$res %>% select(gene_name, mmus.ensembl = gene_id, log2FC.MEM = log2FoldChange, FDR.MEM = padj) %>% mutate(direction.MEM = case_when(FDR.MEM < 0.05 & log2FC.MEM > 0 ~ "up", FDR.MEM < 0.05 & log2FC.MEM < 0 ~ "down", TRUE ~ "non-significant"))
-# # mass_spec.summary <- mass_spec.res %>% select(gene_name, logFC.ALS.MS = lfc, FDR.ALS.MS = padj)
-# mouse_als_datasets_barbar.dge <- mouse_als_datasets.dge %>% full_join(patani.dge) %>% full_join(barbar.dge) #%>% full_join(birger.dge) %>% full_join(tyzack.dge) 
-# cleveland_peng_jiang.dge <- cleveland.dge %>% full_join(peng.dge) %>% full_join(jiang.dge)
-# all_datasets.dge <- full_join(mouse_als_datasets_barbar.dge, cleveland_peng_jiang.dge, by = "gene_name") %>% select(gene_name, hsap.ensembl, mmus.ensembl, everything())
-# write_csv(all_datasets.dge, "/camp/home/ziffo/home/projects/astrocyte-a1-als-meta/expression/deseq2/TableS3.overlap_all_datasets.dge.csv")
+
 ```
 
 
@@ -4415,7 +4376,8 @@ xtab <- data.frame(Univ=univ, List1=as.integer(univ %in% list1), List2=as.intege
 ftable <- as.data.frame(table(xtab[,c('List1','List2','List3')]))
 glm1 <- glm(Freq ~ List1 * List2 * List3, family='poisson',data=ftable)
 glm2 <- glm(Freq ~ List1*List2 + List1*List3 + List2*List3, family='poisson',data=ftable)
-anova(glm1,glm2,test='Chisq')[['Pr(>Chi)']][2] # P value 1.374877e-11
+anova(glm1,glm2,test='Chisq')[['Pr(>Chi)']][2] 
+# [1] 4.715679e-11
 
 list1 <- unique(cleveland.res.dge.down[!is.na(cleveland.res.dge.down)])
 list2 <- unique(a1_datasets.res.dge.down[!is.na(a1_datasets.res.dge.down)])
@@ -4425,8 +4387,8 @@ xtab <- data.frame(Univ=univ, List1=as.integer(univ %in% list1), List2=as.intege
 ftable <- as.data.frame(table(xtab[,c('List1','List2','List3')]))
 glm1 <- glm(Freq ~ List1 * List2 * List3, family='poisson',data=ftable)
 glm2 <- glm(Freq ~ List1*List2 + List1*List3 + List2*List3, family='poisson',data=ftable)
-anova(glm1,glm2,test='Chisq')[['Pr(>Chi)']][2] # 4.021944e-07
-
+anova(glm1,glm2,test='Chisq')[['Pr(>Chi)']][2] 
+# [1] 5.940412e-09
 
 # # 3 way overlap mouse ALS, hiPSC ALS, Sod1 TRAP
 # cleveland.mouse_human_ALS.up_genes <- list("Sod1 TRAP Up" = cleveland.res.dge.up, "hiPSC ALS Up" = als_datasets.res.dge.up, "mouse ALS Up" = mouse_als_datasets.res.dge.up)
@@ -5076,4 +5038,3 @@ ir.ge.a1.merged = ggarrange(ir.guttenplan.A1.irfinder.filt.density, irfinder.a1_
 ggsave(ir.ge.a1.merged, filename = "/camp/home/ziffo/home/projects/astrocyte-a1-a1-meta/splicing/irfinder/figures/ir.ge.a1.merged.png")
 
 ```
-
