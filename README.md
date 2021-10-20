@@ -4,6 +4,8 @@ This repository contains scripts to analyse the data and reproduce the figures f
 Meta-analysis of human and mouse ALS astrocytes reveals multiomic signatures of inflammatory reactive states.
 Oliver J. Ziff*, Benjamin E. Clarke*, Doaa M. Taha*, Hamish Crerar, Nicholas M. Luscombe, Rickie Patani
 
+![GitHub Logo](/images/working_model.fig5.png)
+
 The scripts are written in Rmarkdown documents for readability and are organised in order of the Figures and Tables in the paper.
 
 All raw and processed mRNA sequencing data generated in this study have been deposited in the NCBI Sequence Read Archive (BioProject Gene Expression Omnibus) under accession number GSE160133. Raw Mass Spectrometry data have been deposited to the ProteomeXchange Consortium via the PRIDE partner repository with the dataset identifier PXD022604. 
