@@ -164,9 +164,8 @@ astrocyte.genes <- c("VIM","TNC","GFAP","GJA1","SOX9","ID4","NFIX", "MLC1", "GLI
 celltype.marker.df = data.frame("gene_name" = astrocyte.genes) %>% mutate(group = case_when(gene_name %in% astrocyte.genes ~ "astrocyte"))
 assay(ctrls.zhang_bradley_patani$vsd) %>% as_tibble(rownames = "gene_id") %>% left_join(gene2ens, by = "gene_id")  %>% filter(gene_name %in% astrocyte.genes) %>% group_by(gene_name) %>% filter(n()>1) # any duplicate gene_names?
 
-vsd_counts.celltype.marker <-  assay(ctrls.zhang_bradley_patani$vsd) %>% as_tibble(rownames = "gene_id") %>% left_join(gene2ens, by = "gene_id")  %>% filter(gene_name %in% astrocyte.genes) %>% 
- rowwise() %>%
- mutate("Current study" = mean(c_across(starts_with("astrocyte_ipsc")), na.rm = TRUE), 
+vsd_counts.celltype.marker <-  ctrls.zhang_bradley_patani$vsd.counts  %>% filter(gene_name %in% astrocyte.genes) %>% rowwise() %>%
+ mutate("Current study" = mean(c_across(starts_with("ctrl")), na.rm = TRUE), 
         "Bradley et al" = mean(c_across(starts_with("ventral_spinalcord")), na.rm = TRUE), 
         "Astrocyte fetal" = mean(c_across(starts_with("astrocyte_fetal")), na.rm = TRUE), 
         "Astrocyte adult" = mean(c_across(starts_with("astrocyte_adult_temporal")), na.rm = TRUE), 
@@ -186,7 +185,7 @@ astrocyte.marker.heatmap <- Heatmap(vsd_counts.celltype.marker.mat,
           heatmap_legend_param = list(title = ""), 
           cluster_rows = FALSE, cluster_columns = TRUE,
           row_order = vsd_counts.celltype.marker$gene_name,
-          show_row_names = TRUE, row_names_side = "right", row_names_gp = gpar(fontsize = 8), #row_labels = celltype.marker.row.labels,
+          show_row_names = TRUE, row_names_side = "right", row_names_gp = gpar(fontsize = 8, fontface = "italic"), #row_labels = celltype.marker.row.labels,
           left_annotation = rowAnnotation(markers = anno_block(gp = gpar(fill = c("white")), labels = c("Astrocyte markers"), labels_gp = gpar(fontsize = 10))),
           row_title = NULL,
           column_names_rot = 90, 
@@ -206,7 +205,7 @@ assay(ctrls.zhang_bradley_patani$vsd) %>% as_tibble(rownames = "gene_id") %>% le
 vsd_counts.glutamate.uptake <-  assay(ctrls.zhang_bradley_patani$vsd) %>% as_tibble(rownames = "gene_id") %>% left_join(gene2ens, by = "gene_id") %>% 
   filter(gene_name %in% glutamate.uptake.go) %>% filter(!gene_id %in% c("ENSG00000100031", "ENSG00000286070")) %>%  # remove duplicate ENSID for GGT1
  rowwise() %>%
- mutate("Current study" = mean(c_across(starts_with("astrocyte_ipsc")), na.rm = TRUE), 
+ mutate("Current study" = mean(c_across(starts_with("ctrl")), na.rm = TRUE), 
         "Bradley et al" = mean(c_across(starts_with("ventral_spinalcord")), na.rm = TRUE), 
         "Astrocyte fetal" = mean(c_across(starts_with("astrocyte_fetal")), na.rm = TRUE), 
         "Astrocyte adult" = mean(c_across(starts_with("astrocyte_adult_temporal")), na.rm = TRUE), 
@@ -228,9 +227,9 @@ glutamate.uptake.heatmap <-
           heatmap_legend_param = list(title = ""),  col = col_ramp_glut.uptake,
           cluster_rows = FALSE, cluster_columns = FALSE,
           row_order = vsd_counts.glutamate.uptake$gene_name,
-          show_row_names = FALSE, #row_names_side = "left", row_names_gp = gpar(fontsize = 8), row_labels = glutamate.uptake.row.labels,
+          show_row_names = FALSE, #row_names_side = "right", row_names_gp = gpar(fontsize = 8, fontface = "italic"),
           border = TRUE, #, #, col = c(rep("red", 10), rep("blue", 8)))
-          right_annotation = rowAnnotation(markers = anno_mark(at = glutamate.uptake.row.index, labels = glutamate.uptake.row.labels, labels_gp = gpar(fontsize = 8))),
+          right_annotation = rowAnnotation(markers = anno_mark(at = glutamate.uptake.row.index, labels = glutamate.uptake.row.labels, labels_gp = gpar(fontsize = 8, fontface = "italic"))),
           left_annotation = rowAnnotation(markers = anno_block(gp = gpar(fill = c("white")), labels = c("Glutamate uptake"), labels_gp = gpar(fontsize = 10))),
           row_title = NULL,
           column_names_rot = 90, 
@@ -274,7 +273,7 @@ ctrl.glutamate.uptake_assay %>% filter(treatment == "Untreated") %>% group_by(ex
 # 3          3  43.1
 ctrl.glutamate.uptake_assay = ctrl.glutamate.uptake_assay %>% mutate(foldchange = case_when(experiment == 1 ~ intensity / 34.8, experiment == 2 ~ intensity / 54.8, experiment == 3 ~ intensity / 43.1))
 
-# stats on normalised data
+# stats on Normalized data
 ctrl.glutamate.uptake_assay.stats_test <- ctrl.glutamate.uptake_assay %>% wilcox_test(foldchange ~ treatment) %>% add_significance() %>% add_xy_position(x = "treatment")
 ctrl.glutamate.uptake_assay.stats_test
 # .y.        group1    group2      n1    n2 statistic     p p.adj p.adj.signif y.position groups  xmin  xmax
@@ -302,7 +301,7 @@ phagocytosis.down.genes <- patani$res %>% filter(padj < 0.05, log2FoldChange < 1
 glutamate.uptake.down.genes <- patani$res %>% filter(padj < 0.05, log2FoldChange < 1, gene_name %in% glutamate.uptake.go) %>%  pull(gene_name)
 interesting.gene.labels.filt <- c(phagocytosis.down.genes, glutamate.uptake.down.genes, immune.up.genes, "ASPN", "GJA5", "CALB2", "GABRA2", "GABRB2", "SLC3A2") 
 
-patani.volcano <- volcano_plot_deseq(data = patani$res, labels_list = interesting.gene.labels.filt) + xlab(expression(RNAseq~log[2]~fold~change~VCP:CTRL)) + 
+patani.volcano <- volcano_plot_deseq(data = patani$res, labels_list = interesting.gene.labels.filt) + xlab(expression(RNA~sequencing~log[2]~fold~change~VCP:CTRL)) + 
   coord_cartesian(xlim = c(-10,10), ylim = c(0,8)) +
   geom_segment(aes(x = 3, xend = 9, y= 7, yend= 7), arrow=arrow(length=unit(0.3,"cm")), color = "firebrick2" ) +
   geom_segment(aes(x = -3, xend = -9, y= 7, yend= 7),arrow=arrow(length=unit(0.3,"cm")), color = "dodgerblue2") +
@@ -477,7 +476,7 @@ glutamate.uptake_assay %>% filter(group == "CTRL") %>% group_by(experiment) %>% 
 glutamate.uptake_assay = glutamate.uptake_assay %>% mutate(foldchange = case_when(experiment == 1 ~ mean / 37, experiment == 2 ~ mean / 50.8, experiment == 3 ~ mean / 47.5, experiment == 4 ~ mean / 72.4))
 glutamate.uptake_assay.long = glutamate.uptake_assay.long %>% mutate(foldchange = case_when(experiment == 1 ~ mean / 37, experiment == 2 ~ mean / 50.8, experiment == 3 ~ mean / 47.5, experiment == 4 ~ mean / 72.4))
 
-# stats on normalised data
+# stats on Normalized data
 glutamate.uptake_assay.stats_test <- glutamate.uptake_assay %>% wilcox_test(foldchange ~ group) %>% add_significance() %>% add_xy_position(x = "group")
 glutamate.uptake_assay.stats_test
 
@@ -822,7 +821,7 @@ morphology_assay %>% filter(group == "CTRL") %>% group_by(experiment) %>% summar
 morphology_assay = morphology_assay %>% mutate(foldchange = case_when(experiment == 1 ~ mean / 37, experiment == 2 ~ mean / 50.8, experiment == 3 ~ mean / 47.5, experiment == 4 ~ mean / 72.4))
 morphology_assay.long = morphology_assay.long %>% mutate(foldchange = case_when(experiment == 1 ~ mean / 37, experiment == 2 ~ mean / 50.8, experiment == 3 ~ mean / 47.5, experiment == 4 ~ mean / 72.4))
 
-# stats on normalised data
+# stats on Normalized data
 morphology_assay.stats_test <- morphology_assay %>% wilcox_test(foldchange ~ group) %>% add_significance() %>% add_xy_position(x = "group")
 morphology_assay.stats_test
 
@@ -2113,7 +2112,7 @@ col_ramp_reactivity.markers = colorRamp2(c(-3, 0, 3), c("blue", "white", "red"))
 liddelow.astrocyte.reactivity.marker.heatmap <- Heatmap(liddelow.astrocyte.reactivity.marker.mat.scale,
           show_heatmap_legend = FALSE, col = col_ramp_reactivity.markers, 
           cluster_rows = FALSE, cluster_columns = FALSE, cluster_row_slices = FALSE,          
-          row_names_gp = gpar(fontsize = 6), column_names_gp = gpar(fontsize = 8), border = TRUE, #, #, col = c(rep("red", 10), rep("blue", 8)))
+          row_names_gp = gpar(fontsize = 6, fontface = "italic"), column_names_gp = gpar(fontsize = 8), border = TRUE, #, #, col = c(rep("red", 10), rep("blue", 8)))
           row_order = liddelow.astrocyte.reactivity.markers.filt$gene_name,
           row_split = factor(liddelow.astrocyte.reactivity.markers.filt$group, levels = unique(liddelow.astrocyte.reactivity.markers.filt$group)),
           right_annotation = rowAnnotation(markers = anno_block(gp = gpar(fill = c("white", "white", "white")), labels = c("Pan\nreactive", "A1", "A2"), labels_gp = gpar(fontsize = 8), labels_rot = 0)),
@@ -2152,7 +2151,7 @@ main.escartin.marker.heatmap <- Heatmap(main.escartin.marker.mat.scale,
           cluster_rows = FALSE, cluster_row_slices = FALSE, cluster_columns = FALSE,
           row_split = factor(main.escartin.markers.filt$group, levels = unique(main.escartin.markers.filt$group)), border = TRUE,
           row_order = main.escartin.markers.filt$gene_name,
-          row_names_gp = gpar(fontsize = 7), column_names_gp = gpar(fontsize = 8),
+          row_names_gp = gpar(fontsize = 7, fontface = "italic"), column_names_gp = gpar(fontsize = 8),
           right_annotation = rowAnnotation(markers = anno_block(gp = gpar(fill = c("white", "white", "white", "white", "white", "white")),
                                                                 labels = c("Cytoskeleton", "Metabolism", "Chaperone", "Secreted\nproteins", "Cell\nsignalling", "Channels -\nTransporters"), labels_gp = gpar(fontsize = 7), labels_rot = 0)),
           bottom_annotation = columnAnnotation(markers = anno_block(gp = gpar(fill = c("white", "white", "white")), labels = c("ALS", "A1", "Protective"), labels_gp = gpar(fontsize = 8), labels_rot = 0)),
@@ -2203,7 +2202,7 @@ als_A1_protective.progeny.pathwayActivity <- ggplot(als_a1_protective_datasets.P
   geom_hline(yintercept = 0, linetype = 2, colour = "darkgrey") + 
   scale_fill_manual( values = c("dodgerblue2","firebrick2",  "forestgreen", "gold2", "purple")) +
   facet_wrap(~Pathway, scales = "free", nrow = 2) +
-  xlab("") + ylab(expression(Normalised~enrichment)) #+ labs(subtitle = "Signalling Pathway activity")
+  xlab("") + ylab(expression(Normalized~enrichment)) #+ labs(subtitle = "Signalling Pathway activity")
 als_A1_protective.progeny.pathwayActivity
 
 # a1_datasets.als_datasets.PathwayActivity_zscore_df.meanNES <- a1_datasets.als_datasets.PathwayActivity_zscore_df %>% filter(dataset == "pan-ALS") %>% arrange(NES)
@@ -2213,7 +2212,7 @@ als_A1_protective.progeny.pathwayActivity
 #         axis.text.x = element_text(angle = 45, hjust = 1, size = 8), axis.text.y = element_text(size =8)) + 
 #   geom_hline(yintercept = 0, linetype = 2, colour = "darkgrey") + scale_fill_manual( values = c("firebrick2", "dodgerblue2")) + 
 #   facet_wrap(~dataset, scales = "free") +
-#   xlab("") + ylab(expression(Normalised~enrichment))
+#   xlab("") + ylab(expression(Normalized~enrichment))
 # als_A1_protective.progeny.ordered.pathwayActivity
 
 ```
@@ -3269,11 +3268,15 @@ write_csv(mouse_als_datasets_merged.dge, "/camp/home/ziffo/home/projects/astrocy
 mouse_als_datasets.interesting.gene.labels <- mouse_als_datasets$res %>% filter(-log10(padj) > 3, abs(log2FoldChange) > 3, gene_name %in% c(go.pathways.msigdb$GO_PHAGOCYTOSIS, glutamate.uptake.go)) %>% pull(gene_name)
 mouse_als_datasets.reactive.labels = mouse_als_datasets$res %>% filter(padj < 0.05, gene_name %in% c(astrocyte.reactive.genes, escartin.markers$gene_name)) %>% pull(gene_name)
 
-mouse_als_datasets.volcano <- volcano_plot_deseq(data = mouse_als_datasets$res, labels_list = c(mouse_als_datasets.interesting.gene.labels, mouse_als_datasets.reactive.labels)) + 
-  xlab(expression(log[2]~fold~change~mouse~ALS:CTRL)) + 
+labels_plot <- mouse_als_datasets$res %>% filter(gene_name %in% c(mouse_als_datasets.interesting.gene.labels, mouse_als_datasets.reactive.labels), padj < 0.05)
+data2 <- mouse_als_datasets$res %>% mutate(direction = case_when(padj < 0.05 & log2FoldChange > 0 ~ "upregulated", padj < 0.05 & log2FoldChange < 0 ~ "downregulated", TRUE ~ "unchanged"))
+mouse_als_datasets.volcano = ggplot(data = data2, aes(x = log2FoldChange, y =  -log10(padj), colour = direction)) +  geom_point(size = 0.5) + #xlim(1,5) + ylim(-3,3) +
+  scale_colour_manual( values = c(unchanged = "darkgray", upregulated = "firebrick2", downregulated = "dodgerblue2") ) +  theme_bw() +  theme(panel.grid = element_blank(), legend.title = element_blank(), legend.position = "none") + 
+  ylab(expression( -log[10]~FDR )) + xlab(expression(log[2]~fold~change~mouse~ALS:CTRL)) +
+  geom_hline(yintercept = -log10(0.05), linetype = 2) + geom_vline(xintercept =0, linetype = 2) +
+  geom_text_repel(data = labels_plot, aes(x = log2FoldChange, y = -log10(padj), label = gene_name.mouse), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size=2.6, max.overlaps = Inf) + 
   coord_cartesian(xlim = c(-3,3), ylim = c(0,8)) +
-  geom_segment(aes(x = 1, xend = 3, y= 7, yend= 7), arrow=arrow(length=unit(0.3,"cm")), color = "firebrick2" ) +
-  geom_segment(aes(x = -1, xend = -3, y= 7, yend= 7),arrow=arrow(length=unit(0.3,"cm")), color = "dodgerblue2") +
+  geom_segment(aes(x = 1, xend = 3, y= 7, yend= 7), arrow=arrow(length=unit(0.3,"cm")), color = "firebrick2" ) +  geom_segment(aes(x = -1, xend = -3, y= 7, yend= 7),arrow=arrow(length=unit(0.3,"cm")), color = "dodgerblue2") +
   annotate("text", x = 2, y = 7.5, label = "Up in mouse ALS", color = "firebrick2", size = 2.8) + annotate("text", x = -2, y = 7.5, label = "Down in mouse ALS", color = "dodgerblue2", size = 2.8)
 mouse_als_datasets.volcano
 
@@ -3346,9 +3349,9 @@ mouse_als_datasets$res %>% filter(padj < 0.05, gene_name %in% go.pathways.msigdb
 ## Guttenplan A1 & mouseALS scatter correlation
 
 ```{r}
-mouse_als_datasets.dge <- mouse_als_datasets$res %>% select(gene_name, gene_id, log2FC.ALS = log2FoldChange, FDR.ALS = padj)
-guttenplan.A1.dge <- guttenplan.A1$res %>% select(gene_name, log2FC.guttenplan.A1 = log2FoldChange, FDR.guttenplan.A1 = padj)
-mouse_als_datasets_guttenplan.A1.dge <- full_join(mouse_als_datasets.dge, guttenplan.A1.dge, by = "gene_name")
+mouse_als_datasets.dge <- mouse_als_datasets$res %>% select(gene_name, gene_name.mouse, gene_id, log2FC.ALS = log2FoldChange, FDR.ALS = padj)
+guttenplan.A1.dge <- guttenplan.A1$res %>% select(gene_name, gene_name.mouse, log2FC.guttenplan.A1 = log2FoldChange, FDR.guttenplan.A1 = padj)
+mouse_als_datasets_guttenplan.A1.dge <- full_join(mouse_als_datasets.dge, guttenplan.A1.dge, by = c("gene_name", "gene_name.mouse"))
 
 mouse_als_datasets_guttenplan.A1.dge <- mouse_als_datasets_guttenplan.A1.dge %>% mutate(overlap = case_when(FDR.ALS < 0.05 & FDR.guttenplan.A1 < 0.05 ~ "overlapping", # down in ALS
                                                         FDR.ALS < 0.05 ~ "ALS specific",
@@ -3378,7 +3381,7 @@ guttenplan.A1_mouseALS_scatter <- ggscatter(mouse_als_datasets_guttenplan.A1.dge
           geom_hline(yintercept = 0, linetype = 3, colour = "darkgrey") + geom_vline(xintercept = 0, linetype = 3, colour = "darkgrey") +   
   coord_cartesian(xlim = c(-5,5), ylim = c(-6,7)) +
     geom_smooth(aes(x = log2FC.ALS, y = log2FC.guttenplan.A1), method = "lm", se = FALSE, show.legend = TRUE, colour = "black", linetype = 2) + theme(legend.position = "none") +
-    geom_text_repel(data = filter(mouse_als_datasets_guttenplan.A1.dge, overlap_direction %in%  c("overlapping up", "overlapping down"), gene_name %in% all.reactivity.go, log2FC.guttenplan.A1 < 9), aes(x = log2FC.ALS, y = log2FC.guttenplan.A1, label = gene_name), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
+    geom_text_repel(data = filter(mouse_als_datasets_guttenplan.A1.dge, overlap_direction %in%  c("overlapping up", "overlapping down"), gene_name %in% all.reactivity.go, log2FC.guttenplan.A1 < 9), aes(x = log2FC.ALS, y = log2FC.guttenplan.A1, label = gene_name.mouse), fontface = "italic", colour = "black", min.segment.length = 0, box.padding = 0.5, point.padding = 0.5, size = 2.7, max.overlaps = 30) +  
   annotate(geom="text", x=3, y=7.3, label="ALS & A1 both Up", color="firebrick2", size = 3.2)  + annotate(geom="text", x=-3, y=-6, label="ALS & A1 both Down", color="dodgerblue2", size = 3.2)
 guttenplan.A1_mouseALS_scatter
 
@@ -3568,7 +3571,7 @@ mouse_als_A1_protective.progeny.pathwayActivity <- ggplot(mouse_als_a1_protectiv
   geom_hline(yintercept = 0, linetype = 2, colour = "darkgrey") + 
   scale_fill_manual( values = c("dodgerblue2","firebrick2",  "forestgreen", "gold2", "purple")) +
   facet_wrap(~Pathway, scales = "free", nrow = 2) +
-  xlab("") + ylab(expression(Normalised~enrichment)) #+ labs(subtitle = "Signalling Pathway activity")
+  xlab("") + ylab(expression(Normalized~enrichment)) #+ labs(subtitle = "Signalling Pathway activity")
 mouse_als_A1_protective.progeny.pathwayActivity
 
 
